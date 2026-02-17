@@ -11,6 +11,12 @@ from typing import Optional
 
 from cwrappers.shared.log import eprint
 
+# Verbose bootstrap logs are opt-in to keep CLI help/output clean.
+def _debug(msg: str) -> None:
+    if os.environ.get("CWRAPPERS_DEBUG") == "1":
+        eprint(msg)
+
+
 try:
     from clang import cindex
 except Exception as e:
@@ -53,7 +59,7 @@ def _init_libclang() -> None:
                 tried.append(cand)
                 try:
                     cindex.Config.set_library_file(cand)
-                    eprint(f"[debug] set libclang from: {cand}")
+                    _debug(f"[debug] set libclang from: {cand}")
                     return True
                 except Exception:
                     continue
@@ -71,7 +77,7 @@ def _init_libclang() -> None:
     if libfile:
         try:
             cindex.Config.set_library_file(libfile)
-            eprint(f"[debug] using cindex.Config.library_file: {libfile}")
+            _debug(f"[debug] using cindex.Config.library_file: {libfile}")
             return
         except Exception:
             tried.append(libfile)

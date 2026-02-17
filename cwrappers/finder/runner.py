@@ -25,6 +25,7 @@ from cwrappers.finder.provenance import compute_arg_ret_pass_multi
 from cwrappers.finder.wrapper_detection import analyze_wrapper_relaxed, analyze_wrapper_strict_plus
 from cwrappers.finder.ast_utils import _function_key
 from cwrappers.shared.log import eprint
+from cwrappers.shared.paths import default_catalog_path
 
 
 def _default_output_name(fmt: str) -> str:
@@ -234,8 +235,14 @@ def run_finder(args) -> Optional[Path]:
     # ============================
 
     if not args.yaml:
-        eprint("Error: --yaml is required unless --callgraph-only is specified.")
-        raise SystemExit(1)
+        bundled_yaml = default_catalog_path()
+        if bundled_yaml.is_file():
+            args.yaml = str(bundled_yaml)
+            if getattr(args, "verbose", False):
+                eprint(f"[catalog] using bundled YAML: {args.yaml}")
+        else:
+            eprint("Error: --yaml is required unless --callgraph-only is specified.")
+            raise SystemExit(1)
 
     catalog = load_api_catalog(Path(args.yaml))
     if not catalog.target_names:

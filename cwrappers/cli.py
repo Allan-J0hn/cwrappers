@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 from typing import List, Optional
@@ -11,6 +10,19 @@ from cwrappers.finder import cli as finder_cli
 from cwrappers.finder.runner import run_finder
 from cwrappers.fuzzy import cli as fuzzy_cli
 from cwrappers.fuzzy.io import process_csv
+
+USAGE = """usage: cwrappers <finder|fuzzy|pipeline> [args...]
+
+subcommands:
+  finder    run wrapper detection
+  fuzzy     run fuzzy post-processing on a finder CSV
+  pipeline  run finder, then optional fuzzy scoring
+
+examples:
+  cwrappers finder --compile-commands compile_commands.json --out wrappers.csv
+  cwrappers fuzzy wrappers.csv
+  cwrappers pipeline --compile-commands compile_commands.json --fuzzy
+"""
 
 
 def _find_flag_value(argv: List[str], flag: str) -> Optional[str]:
@@ -106,7 +118,13 @@ def _pipeline(argv: List[str]) -> int:
 
     yaml_path = getattr(finder_args, "yaml", None)
     try:
-        process_csv(str(out_path), top_k=fuzzy_top_k or 3, yaml_path=yaml_path, out_path=fuzzy_out, out_dir=fuzzy_out_dir)
+        process_csv(
+            str(out_path),
+            top_k=fuzzy_top_k or 3,
+            yaml_path=yaml_path,
+            out_path=fuzzy_out,
+            out_dir=fuzzy_out_dir,
+        )
     except Exception as e:
         print(f"error: {e}")
         return 1
@@ -116,8 +134,11 @@ def _pipeline(argv: List[str]) -> int:
 
 def main(argv: List[str] | None = None) -> int:
     argv = list(argv or sys.argv[1:])
+    if argv and argv[0] in {"-h", "--help", "help"}:
+        print(USAGE)
+        return 0
     if not argv:
-        print("usage: cwrappers <finder|fuzzy|pipeline> [args...]")
+        print(USAGE)
         return 2
 
     cmd = argv[0]

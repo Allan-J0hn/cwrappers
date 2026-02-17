@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=59"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cwrappers"
+version = "0.1.0"
+description = "Wrapper detection and fuzzy scoring for C codebases"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["clang", "static-analysis", "wrappers", "libc", "syscalls"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Compilers",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+  "pyyaml>=6.0",
+  "clang>=14.0",
+  "rapidfuzz>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "build>=1.0",
+]
+
+[project.scripts]
+cwrappers = "cwrappers.cli:main"
+cwrappers-finder = "cwrappers.finder.cli:main"
+cwrappers-fuzzy = "cwrappers.fuzzy.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cwrappers*"]
+
+[tool.setuptools.package-data]
+"cwrappers" = ["data/*.yaml"]

@@ -19,8 +19,12 @@ def parse_args(argv: List[str] | None = None):
     parser.add_argument(
         "--yaml",
         type=str,
-        default=argparse.SUPPRESS,
+        default=None,
         required=False,
+        help=(
+            "Path to API catalog YAML. If omitted, uses bundled catalog "
+            "(cwrappers/data/categorized_methods.yaml)."
+        ),
     )
     parser.add_argument(
         "--only-libc",

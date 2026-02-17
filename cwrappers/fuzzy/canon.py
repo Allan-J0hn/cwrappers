@@ -10,6 +10,7 @@ from typing import List, Set
 import yaml
 
 from cwrappers.fuzzy.normalize import normalize
+from cwrappers.shared.paths import default_catalog_path
 
 
 @dataclass
@@ -22,6 +23,9 @@ def _candidate_yaml_paths(yaml_path: str | None) -> List[str]:
     candidates: List[str] = []
     if yaml_path:
         candidates.append(yaml_path)
+
+    # Bundled catalog in installed/source package.
+    candidates.append(str(default_catalog_path()))
 
     # Current working directory
     candidates.append(os.path.join(os.getcwd(), "categorized_methods.yaml"))
