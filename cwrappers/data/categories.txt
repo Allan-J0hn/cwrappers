@@ -1,0 +1,186 @@
+I/O
+  io.h ioctl.h 
+  stdio_misc_ids
+  system_calls_io
+Memory management
+  malloc.h mcheck.h mman.h mman-shared.h obstack.h uio-ext.h swap.h shm.h 
+  stdlib_memory 
+  mem_copy_move  
+  string_copy_move_fortify_mem 
+  string_obscure_gnu_mem
+  system_calls_memory
+  unistd.h_memory
+  ucontext.h_memory
+  fcntl-linux.h_memory
+Filesystem 
+  dirent_ext.h dirent.h fanotify.h 
+  fstab.h fsuid.h fts.h stat.h statx-generic.h
+  inotify.h xattr.h mntent.h mount.h quota.h fnmatch.h ftw.h glob.h
+  libgen.h utime.h 
+  stdlib_path 
+  stdio_locking 
+  stdio_rename_remove 
+  stdio_tmpfiles 
+  stdlib_tempfile 
+  stdlib_path
+  system_calls_fs
+  unistd.h_fs
+  time.h_file
+File IO
+  uio.h file.h fcntl.h fcntl-linux.h
+  stdio_char_io 
+  stdio_line_io 
+  stdio_block_io 
+  stdio_positioning 
+  stdio_stream_open_close 
+  stdio_memstream 
+  stdio_fd_bridge 
+  stdio_error_state  
+  system_calls_fileio
+  unistd.h_file_io
+  unistd.h_pipe
+Networking
+  ether.h if.h ifaddrs.h socket.h netinet_in.h arpa_inet.h sendfile.h netdb.h
+  system_calls_networking
+  unistd.h_networking
+Event IO
+  epoll.h eventfd.h select.h poll.h
+  system_calls_ev_io
+String
+  libintl.h wchar.h wctype.h wctype-wchar.h uchar.h ctype.h iconv.h strings.h wordexp.h  
+  string_collation 
+  string_compare  
+  string_length 
+  string_search_scan 
+  string_span 
+  string_token string_dup   
+  stdlib_conversion 
+  stdlib_format 
+  string_copy_move 
+  string_errno 
+  stdlib_multibyte 
+  stdlib_misc_getsubopt 
+  string_copy_move_fortify_st 
+  string_signal 
+  string_obscure_gnu_st
+Process control, wait, signals, change context, scheduling, setjmp
+  resource.h wait.h signalfd.h vlimit.h ucontext.h sched.h signal.h setjmp.h ulimit.h prctl.h
+  unistd.h_process_control
+  stdio_pipe_proc
+  system_calls_process_control
+User permissions
+  grp.h
+  unistd.h_user_permissions
+  system_calls_user_permissions
+Execution
+  spawn.h 
+  unistd.h_execution
+  system_calls_execution
+  stdlib_process 
+  sched.h_clone
+  personality.h 
+Security
+  system_calls_security
+  mman-shared.h_security
+RPC
+  auth_unix.h clnt.h clnt_soc.h pmap_clnt.h pmap_prot.h pmap_rmt.h rpc.h rpc_msg.h xdr.h svc.h svc_soc.h auth_des.h
+DNS
+  aliases.h nameser.h resolv.h 
+ENV, ARGV, ARGV parsing
+  argp.h argz.h getopt_core.h getopt_ext.h
+  envz.h
+  stdlib_environment
+Crypto
+  crypto.h des_crypt.h key_prot.h
+Multithreading
+  threads.h sigthread.h signal_ext.h unistd_ext.h pthread.h
+  system_calls_threads
+IPC
+  msg.h sem.h ipc.h mqueue.h semaphore.h
+  system_calls_ipc
+ELF/binary loading/execution
+  auxv.h elf.h dlfcn.h
+Synchronization
+  system_calls_sync
+NFS
+  capability.h
+  system_calls_nfs
+Asynchronous I/O
+  aio.h
+Error processing
+  err.h error.h
+Debugging, profiling, accounting
+  execinfo.h ptrace-shared.h
+  gmon.h profil.h
+  system_calls_accounting
+  system_calls_debugging
+  system_calls_tracing
+  system_calls_profiling
+  unistd.h_profiling
+  unistd.h_accounting
+  unistd.h_random_num_gen
+Authentication
+  gshadow.h shadow.h auth.h pwd.h
+Logging
+  klog.h syslog.h fntmsg.h
+Glibc 
+  libc-version.h
+Dynamic linking
+  link.h
+Integer types
+  inttypes.h
+Internationalization
+  langinfo.h locale.h monetary.h
+Random number generator
+  random.h
+  stdlib_random
+  system_calls_random
+Formatted I/O
+  printf.h fntmsg.h
+  stdio_format_out 
+  stdio_format_in
+Terminal, pty, tty
+  pty.h ttyent.h termios.h sgtty.h
+  stdio_tty
+  stdlib_pty 
+  stdlib_tty 
+  stdlib_pty_fcntl
+  system_calls_tty
+  unistd.h_tty
+Machine control
+  reboot.h
+  system_calls_machinectl
+Kernel modules, BPF
+  system_calls_modules_kern
+  system_calls_bpf
+System stats, info
+  statfs.h statvfs.h 
+  sysinfo.h utsname.h
+  stdlib_misc_getloadavg
+  system_calls_systemstats_info
+User management/accounting 
+  utmp.h utmpx.h
+NUMA
+  system_calls_numa
+Misc
+  sysmacros.h
+  system_calls_notsupposedtobecalledfromuserland
+  system_calls_ibm
+  system_calls_unimplemented
+Date/time/Timers
+  timeb.h timex.h time.h timerfd.h
+  system_calls_time
+  unistd.h_time
+Text processing
+  nl_types.h
+Regexp
+  regex.h
+Data structures (hashtable, tree), search, sort
+  search.h 
+  stdlib_search_sort
+Math
+  math.h 
+  math_classify
+  math_exponential
+  math_misc
+  stdlib_abs_div

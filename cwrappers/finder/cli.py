@@ -11,6 +11,15 @@ from cwrappers.finder.runner import run_finder
 def parse_args(argv: List[str] | None = None):
     parser = argparse.ArgumentParser(description="Find libc/syscall wrapper candidates")
     parser.add_argument(
+        "--repo",
+        action="append",
+        default=argparse.SUPPRESS,
+        help=(
+            "Repository root to scope analysis to. Can be repeated. "
+            "Alias for adding entries to --project-root and enabling --project-only behavior."
+        ),
+    )
+    parser.add_argument(
         "--compile-commands",
         type=str,
         required=True,
@@ -163,6 +172,13 @@ def parse_args(argv: List[str] | None = None):
 
 def main(argv: List[str] | None = None) -> int:
     args = parse_args(argv)
+
+    # Backward/ergonomic alias: --repo behaves like --project-root + --project-only.
+    if hasattr(args, "repo") and args.repo:
+        existing_roots = list(getattr(args, "project_root", []) or [])
+        args.project_root = existing_roots + list(args.repo)
+        args.project_only = True
+
     run_finder(args)
     return 0
 

@@ -1,4 +1,4 @@
-"""Unified CLI with finder, fuzzy, and pipeline commands."""
+"""Unified CLI with finder, fuzzy, pipeline, and run commands."""
 
 from __future__ import annotations
 
@@ -11,17 +11,19 @@ from cwrappers.finder.runner import run_finder
 from cwrappers.fuzzy import cli as fuzzy_cli
 from cwrappers.fuzzy.io import process_csv
 
-USAGE = """usage: cwrappers <finder|fuzzy|pipeline> [args...]
+USAGE = """usage: cwrappers <finder|fuzzy|pipeline|run> [args...]
 
 subcommands:
   finder    run wrapper detection
   fuzzy     run fuzzy post-processing on a finder CSV
   pipeline  run finder, then optional fuzzy scoring
+    run       run finder, then fuzzy scoring (single command)
 
 examples:
   cwrappers finder --compile-commands compile_commands.json --out wrappers.csv
   cwrappers fuzzy wrappers.csv
   cwrappers pipeline --compile-commands compile_commands.json --fuzzy
+    cwrappers run --compile-commands compile_commands.json --out wrappers.csv
 """
 
 
@@ -132,6 +134,32 @@ def _pipeline(argv: List[str]) -> int:
     return 0
 
 
+def _run(argv: List[str]) -> int:
+    """Single-command wrapper run with optional fuzzy stage.
+
+    Behavior:
+    - default: finder + fuzzy
+    - --fuzzy: force fuzzy on
+    - --no-fuzzy: force fuzzy off
+    """
+    has_fuzzy = any(tok == "--fuzzy" for tok in argv)
+    has_no_fuzzy = any(tok == "--no-fuzzy" for tok in argv)
+
+    if has_fuzzy and has_no_fuzzy:
+        print("error: --fuzzy and --no-fuzzy cannot be used together.")
+        return 2
+
+    # Default for run is fuzzy on unless explicitly disabled.
+    if has_no_fuzzy:
+        filtered = [tok for tok in argv if tok != "--no-fuzzy"]
+        return _pipeline(filtered)
+
+    if has_fuzzy:
+        return _pipeline(list(argv))
+
+    return _pipeline(["--fuzzy", *argv])
+
+
 def main(argv: List[str] | None = None) -> int:
     argv = list(argv or sys.argv[1:])
     if argv and argv[0] in {"-h", "--help", "help"}:
@@ -150,6 +178,8 @@ def main(argv: List[str] | None = None) -> int:
         return fuzzy_cli.main(rest)
     if cmd == "pipeline":
         return _pipeline(rest)
+    if cmd == "run":
+        return _run(rest)
 
     print(f"unknown command: {cmd}")
     return 2

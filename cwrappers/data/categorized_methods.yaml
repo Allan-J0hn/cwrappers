@@ -214,6 +214,7 @@ categories:
     - splice
     - sync_file_range
     - tee
+  fcntl-linux.h_memory:
     - vmsplice
   fcntl.h:
     - creat
@@ -499,6 +500,7 @@ categories:
   mman-shared.h:
     - memfd_create
     - mlock2
+  mman-shared.h_security:
     - pkey_alloc
     - pkey_free
     - pkey_get
@@ -868,8 +870,9 @@ categories:
     - xdr_callmsg
     - xdr_rejected_reply
     - xdr_replymsg
-  sched.h:
+  sched.h_clone:
     - clone
+  sched.h:
     - getcpu
     - sched_get_priority_max
     - sched_get_priority_min
@@ -1090,6 +1093,8 @@ categories:
     - putc_unlocked
     - putchar
     - putchar_unlocked
+    - getw
+    - putw
   stdio_line_io:
     - fgets
     - fgets_unlocked
@@ -1186,11 +1191,9 @@ categories:
     - tmpnam
     - tmpnam_r
     - tempnam
-  stdio_misc_ids:
+  stdio_tty:
     - ctermid
     - cuserid
-    - getw
-    - putw
   stdlib_abs_div:
     - abs
     - labs
@@ -1246,10 +1249,6 @@ categories:
     - aligned_alloc
     - posix_memalign
     - valloc
-  stdlib_misc:
-    - getloadavg
-    - getsubopt
-    - rpmatch
   stdlib_multibyte:
     - mblen
     - mbtowc
@@ -1328,26 +1327,6 @@ categories:
     - strcmp
     - strncmp
     - strverscmp
-  string_copy_move:
-    - memcpy
-    - memmove
-    - mempcpy
-    - memset
-    - stpcpy
-    - stpncpy
-    - strcpy
-    - strncpy
-    - strcat
-    - strncat
-  string_copy_move_fortify:
-    - __memcmpeq
-    - __memcpy_chk
-    - __memmove_chk
-    - __mempcpy
-    - __mempcpy_chk
-    - __memset_chk
-    - __stpcpy
-    - __stpncpy
   string_length:
     - strlen
     - strnlen
@@ -1383,11 +1362,6 @@ categories:
     - strsignal
     - sigabbrev_np
     - sigdescr_np
-  string_obscure_gnu:
-    - explicit_bzero
-    - memccpy
-    - memfrob
-    - strfry
   strings.h:
     - __strcasecmp
     - __strcasecmp_l
@@ -1491,6 +1465,11 @@ categories:
     - tss_delete
     - tss_get
     - tss_set
+  time.h_file:
+    - futimes
+    - futimesat
+    - utimes
+    - lutimes
   time.h:
     - __gettimeofday
     - adjtime
@@ -1507,8 +1486,6 @@ categories:
     - ctime_r
     - difftime
     - dysize
-    - futimes
-    - futimesat
     - getdate
     - getdate_r
     - getitimer
@@ -1517,7 +1494,6 @@ categories:
     - gmtime_r
     - localtime
     - localtime_r
-    - lutimes
     - mktime
     - nanosleep
     - setitimer
@@ -1538,7 +1514,6 @@ categories:
     - timespec_get
     - timespec_getres
     - tzset
-    - utimes
   timeb.h:
     - ftime
   timerfd.h:
@@ -1560,10 +1535,11 @@ categories:
     - c32rtomb
     - mbrtoc16
     - mbrtoc32
+  ucontext.h_memory:
+    - modify_ldt
   ucontext.h:
     - getcontext
     - makecontext
-    - modify_ldt
     - setcontext
     - swapcontext
   uio-ext.h:
@@ -1582,131 +1558,6 @@ categories:
     - writev
   ulimit.h:
     - ulimit
-  unistd.h:
-    - access
-    - acct
-    - alarm
-    - brk
-    - chdir
-    - chown
-    - chroot
-    - close
-    - close_range
-    - closefrom
-    - confstr
-    - copy_file_range
-    - daemon
-    - dup
-    - dup2
-    - dup3
-    - eaccess
-    - endusershell
-    - euidaccess
-    - execl
-    - execle
-    - execlp
-    - execv
-    - execve
-    - execveat
-    - execvp
-    - execvpe
-    - faccessat
-    - fchdir
-    - fchown
-    - fchownat
-    - fdatasync
-    - fexecve
-    - fork
-    - fpathconf
-    - fsync
-    - ftruncate
-    - ftruncate64
-    - get_current_dir_name
-    - getcwd
-    - getdomainname
-    - getdtablesize
-    - getegid
-    - getentropy
-    - geteuid
-    - getgid
-    - getgroups
-    - gethostid
-    - gethostname
-    - getlogin
-    - getlogin_r
-    - getpagesize
-    - getpass
-    - getpgid
-    - getpgrp
-    - getpid
-    - getppid
-    - getresgid
-    - getresuid
-    - getsid
-    - getuid
-    - getusershell
-    - getwd
-    - group_member
-    - isatty
-    - lchown
-    - link
-    - linkat
-    - llseek
-    - lseek
-    - lseek64
-    - nice
-    - pathconf
-    - pause
-    - pipe
-    - pipe2
-    - pread
-    - pread64
-    - profil
-    - pwrite
-    - pwrite64
-    - read
-    - readlink
-    - readlinkat
-    - revoke
-    - rmdir
-    - sbrk
-    - setdomainname
-    - setegid
-    - seteuid
-    - setgid
-    - sethostid
-    - sethostname
-    - setlogin
-    - setpgid
-    - setpgrp
-    - setregid
-    - setresgid
-    - setresuid
-    - setreuid
-    - setsid
-    - setuid
-    - setusershell
-    - sleep
-    - swab
-    - symlink
-    - symlinkat
-    - sync
-    - syncfs
-    - syscall
-    - sysconf
-    - tcgetpgrp
-    - tcsetpgrp
-    - truncate
-    - truncate64
-    - ttyname
-    - ttyname_r
-    - ualarm
-    - unlink
-    - unlinkat
-    - usleep
-    - vfork
-    - vhangup
-    - write
   unistd_ext.h:
     - gettid
   utime.h:
@@ -1954,36 +1805,177 @@ categories:
     - xdrrec_eof
     - xdrrec_skiprecord
     - xdrstdio_create
-  system_calls:
+  mem_copy_move:
+    - memcpy
+    - memmove
+    - mempcpy
+    - memset
+  string_copy_move:
+    - stpcpy
+    - stpncpy
+    - strcpy
+    - strncpy
+    - strcat
+    - strncat
+  stdlib_misc_getloadavg:
+    - getloadavg
+  stdlib_misc_getsubopt:
+    - getsubopt
+    - rpmatch
+  string_copy_move_fortify_mem:
+    - __memcmpeq
+    - __memcpy_chk
+    - __memmove_chk
+    - __mempcpy
+    - __mempcpy_chk
+    - __memset_chk
+  string_copy_move_fortify_st:
+    - __stpcpy
+    - __stpncpy
+  string_obscure_gnu_mem:
+    - explicit_bzero
+    - memccpy
+    - memfrob
+  string_obscure_gnu_st:
+    - strfry
+    - strncasecmp
+    - strncasecmp_l
+  unistd.h_fs:
+    - chdir
+    - chown
+    - chroot
+    - confstr
+    - access
+    - faccessat
+    - fchdir
+    - fchown
+    - fchownat
+    - ftruncate
+    - ftruncate64
+    - get_current_dir_name
+    - getcwd
+    - link
+    - linkat
+    - symlink
+    - symlinkat
+    - truncate
+    - truncate64
+    - unlink
+    - unlinkat
+    - pathconf
+    - fpathconf
+    - getwd
+    - lchown
+    - readlink
+    - readlinkat
+    - rmdir
+    - sysconf
+  unistd.h_file_io:
+    - close
+    - close_range
+    - closefrom
+    - dup
+    - dup2
+    - dup3
+    - pread
+    - pread64
+    - pwrite
+    - pwrite64
+    - read
+    - write
+    - llseek
+    - lseek
+    - lseek64
+    - sync
+    - syncfs
+    - fdatasync
+    - fsync
+    - copy_file_range
+  unistd.h_execution:
+    - execl
+    - execle
+    - execlp
+    - execv
+    - execve
+    - execveat
+    - execvp
+    - execvpe
+    - fexecve
+    - fork
+    - vfork
+  unistd.h_tty:
+    - isatty
+    - ttyname
+    - ttyname_r
+    - vhangup
+  unistd.h_time:
+    - alarm
+  unistd.h_process_control:
+    - daemon
+    - getdtablesize
+    - nice
+    - pause
+    - sleep
+    - ualarm
+    - usleep
+  unistd.h_accounting:
+    - acct
+  unistd.h_user_permissions:
+    - eaccess
+    - euidaccess
+    - endusershell
+    - getegid
+    - geteuid
+    - getgid
+    - getgroups
+    - getlogin
+    - getlogin_r
+    - getpass
+    - getpid
+    - getppid
+    - getresgid
+    - getresuid
+    - getsid
+    - getuid
+    - getusershell
+    - getpgid
+    - getpgrp
+    - group_member
+    - setegid
+    - seteuid
+    - setgid
+    - setpgid
+    - setpgrp
+    - setregid
+    - setresgid
+    - setresuid
+    - setreuid
+    - setsid
+    - setuid
+    - tcgetpgrp
+    - tcsetpgrp
+    - setusershell
+  unistd.h_random_num_gen:
+    - getentropy
+  unistd.h_networking:
+    - gethostid
+    - gethostname
+    - setdomainname
+    - sethostid
+    - sethostname
+    - getdomainname
+  unistd.h_profiling:
+    - profil
+  unistd.h_memory:
+    - swab
+    - brk
+    - getpagesize
+    - sbrk
+  unistd.h_pipe:
+    - pipe
+    - pipe2
+  system_calls_fs:
     - _llseek
-    - _newselect
-    - add_key
-    - arc_gettls
-    - arc_settls
-    - arc_usr_cmpxchg
-    - arm_fadvise64_64
-    - atomic_barrier
-    - atomic_cmpxchg_32
-    - bpf
-    - breakpoint
-    - cachectl
-    - cacheflush
-    - cachestat
-    - capget
-    - chown32
-    - clock_adjtime64
-    - clock_getres_time64
-    - clock_gettime64
-    - clock_nanosleep_time64
-    - clock_settime64
-    - clone3
-    - delete_module
-    - dipc
-    - epoll_ctl_old
-    - epoll_wait_old
-    - eventfd2
-    - exec_with_loader
-    - exit_group
     - faccessat2
     - fadvise64
     - fadvise64_64
@@ -1991,34 +1983,199 @@ categories:
     - fchown32
     - file_getattr
     - file_setattr
-    - finit_module
+    - chown32
+    - getdents
+    - lookup_dcookie
+    - pivot_root
     - fsconfig
     - fsmount
     - fsopen
     - fspick
-    - futex
-    - futex_requeue
-    - futex_time64
-    - futex_wait
-    - futex_waitv
-    - futex_wake
-    - get_mempolicy
-    - get_robust_list
-    - get_thread_area
-    - get_tls
-    - getdents
-    - getegid32
-    - geteuid32
-    - getgid32
-    - getgroups32
-    - getresgid32
-    - getresuid32
-    - getuid32
+    - lchown32
+    - listmount
+    - listxattrat
+    - newfstatat
+    - oldfstat
+    - oldlstat
+    - oldolduname
+    - oldstat
+    - oldumount
+    - olduname
+    - osf_fstat
+    - osf_fstatfs
+    - osf_fstatfs64
+    - osf_getdirentries
+    - osf_lstat
+    - osf_mount
+    - osf_stat
+    - osf_statfs
+    - osf_statfs64
+    - osf_swapon
+    - setfsgid32
+    - setfsuid32
+    - setgid32
+    - setgroups32
+    - setregid32
+    - setresgid32
+    - setresuid32
+    - setreuid32
+    - setuid32
+    - arm_fadvise64_64
     - getxattrat
-    - getxgid
-    - getxpid
-    - getxuid
-    - init_module
+    - mount_setattr
+    - move_mount
+    - open_tree
+    - open_tree_attr
+    - openat2
+    - osf_proplist_syscall
+    - osf_utimes
+    - quotactl_fd
+    - removexattrat
+    - setxattrat
+    - statmount
+    - sync_file_range2
+    - sysfs
+    - ustat
+    - chdir
+    - chmod
+    - chown
+    - chroot
+    - mkdir
+    - mkdirat
+    - mknod
+    - mknodat
+    - fchdir
+    - fchmod
+    - fchmodat
+    - fchown
+    - fchownat
+    - rename
+    - renameat
+    - renameat2
+    - rmdir
+    - access
+    - faccessat
+    - setxattr
+    - getxattr
+    - fgetxattr
+    - fsetxattr
+    - flistxattr
+    - lgetxattr
+    - lsetxattr
+    - listxattr
+    - llistxattr
+    - fremovexattr
+    - lremovexattr
+    - lstat
+    - fstat
+    - stat
+    - truncate
+    - ftruncate
+    - lchown
+    - link
+    - linkat
+    - mount
+    - umount2
+    - quotactl
+    - readlink
+    - readlinkat
+    - removexattr
+    - symlink
+    - symlinkat
+    - umask
+    - unlink
+    - unlinkat
+    - utimensat
+    - utimes
+    - fanotify_init
+    - fanotify_mark
+    - futimesat
+    - getcwd
+    - getdents64
+    - inotify_add_watch
+    - inotify_init
+    - inotify_init1
+    - inotify_rm_watch
+    - setfsgid
+    - setfsuid
+    - statx
+    - utime
+  system_calls_fileio:
+    - fallocate
+    - fcntl
+    - close
+    - creat
+    - dup
+    - dup2
+    - dup3
+    - write
+    - writev
+    - read
+    - readv
+    - pread64
+    - preadv
+    - preadv2
+    - pwrite64
+    - pwritev
+    - pwritev2
+    - flock
+    - fsync
+    - lseek
+    - open
+    - open_by_handle_at
+    - name_to_handle_at
+    - openat
+    - pipe
+    - pipe2
+    - sync
+    - copy_file_range
+    - fdatasync
+    - readahead
+    - splice
+    - sync_file_range
+    - syncfs
+    - tee
+    - close_range
+  system_calls_time:
+    - timer_gettime64
+    - timer_settime64
+    - timerfd
+    - timerfd_gettime64
+    - timerfd_settime64
+    - clock_adjtime64
+    - clock_getres_time64
+    - clock_gettime64
+    - clock_nanosleep_time64
+    - clock_settime64
+    - osf_getitimer
+    - osf_gettimeofday
+    - old_adjtimex
+    - osf_setitimer
+    - osf_settimeofday
+    - utimensat_time64
+    - clock_adjtime
+    - clock_getres
+    - clock_gettime
+    - clock_nanosleep
+    - clock_settime
+    - time
+    - timer_create
+    - timer_delete
+    - timer_getoverrun
+    - timer_gettime
+    - timer_settime
+    - timerfd_create
+    - timerfd_gettime
+    - timerfd_settime
+    - alarm
+    - setitimer
+    - getitimer
+    - gettimeofday
+    - settimeofday
+    - nanosleep
+    - adjtimex
+    - time
+  system_calls_io:
     - io_cancel
     - io_destroy
     - io_getevents
@@ -2031,101 +2188,263 @@ categories:
     - io_uring_setup
     - ioprio_get
     - ioprio_set
-    - ipc
-    - kcmp
-    - kern_features
-    - kexec_file_load
-    - kexec_load
-    - keyctl
-    - landlock_add_rule
-    - landlock_create_ruleset
-    - landlock_restrict_self
-    - lchown32
-    - listmount
-    - listxattrat
-    - lookup_dcookie
-    - lsm_get_self_attr
-    - lsm_list_modules
-    - lsm_set_self_attr
-    - map_shadow_stack
-    - mbind
-    - membarrier
-    - memfd_secret
-    - memory_ordering
-    - migrate_pages
-    - mmap2
-    - mount_setattr
-    - move_mount
-    - move_pages
-    - mq_getsetattr
-    - mq_timedreceive_time64
-    - mq_timedsend_time64
-    - mseal
-    - multiplexer
-    - newfstatat
-    - old_adjtimex
-    - oldfstat
-    - oldlstat
-    - oldolduname
-    - oldstat
-    - oldumount
-    - olduname
-    - open_tree
-    - open_tree_attr
-    - openat2
-    - or1k_atomic
-    - osf_fstat
-    - osf_fstatfs
-    - osf_fstatfs64
-    - osf_getdirentries
-    - osf_getdomainname
-    - osf_getitimer
-    - osf_getrusage
-    - osf_getsysinfo
-    - osf_gettimeofday
-    - osf_lstat
-    - osf_mount
-    - osf_proplist_syscall
-    - osf_select
-    - osf_set_program_attributes
-    - osf_setitimer
-    - osf_setsysinfo
-    - osf_settimeofday
-    - osf_shmat
-    - osf_sigprocmask
-    - osf_sigstack
-    - osf_stat
-    - osf_statfs
-    - osf_statfs64
-    - osf_swapon
-    - osf_syscall
-    - osf_sysinfo
-    - osf_usleep_thread
-    - osf_utimes
-    - osf_utsname
-    - osf_wait4
     - pciconfig_iobase
     - pciconfig_read
     - pciconfig_write
-    - perf_event_open
-    - perfctr
+    - ioctl
+    - ioperm
+    - iopl
+  system_calls_ev_io:
+    - _newselect
+    - eventfd2
+    - osf_select
+    - epoll_create
+    - epoll_create1
+    - epoll_ctl
+    - epoll_pwait
+    - epoll_pwait2
+    - epoll_wait
+    - epoll_ctl_old
+    - epoll_wait_old
+    - ppoll_time64
+    - pselect6
+    - pselect6_time64
+    - poll
+    - eventfd
+    - select
+    - ppoll
+  system_calls_user_permissions:
+    - getegid32
+    - geteuid32
+    - getgid32
+    - getgroups32
+    - getresgid32
+    - getresuid32
+    - getuid32
+    - getxgid
+    - getxpid
+    - getxuid
+    - getegid
+    - geteuid
+    - getgid
+    - getpgid
+    - getpgrp
+    - getpid
+    - getppid
+    - getresgid
+    - getresuid
+    - setpgid
+    - setregid
+    - setreuid
+    - setgid
+    - getgroups
+    - setgroups
+    - getsid
+    - setsid
+    - getuid
+    - setuid
+    - setresgid
+    - setresuid
+  system_calls_debugging:
+    - breakpoint? can't find this one
+    - sys_debug_setcontext
+    - ptrace
+  system_calls_networking:
+    - osf_getdomainname
+    - recvmmsg_time64
+    - socketcall
+    - accept
+    - accept4
+    - bind
+    - connect
+    - getpeername
+    - setsockopt
+    - getsockname
+    - getsockopt
+    - listen
+    - recvfrom
+    - recvmmsg
+    - recvmsg
+    - sendfile
+    - sendmsg
+    - sendto
+    - shutdown
+    - socket
+    - socketpair
+    - sendmmsg
+    - setdomainname
+    - sethostname
+  system_calls_modules_kern:
+    - delete_module
+    - finit_module
+    - init_module
+    - kexec_file_load
+    - kexec_load
+    - create_module
+    - get_kernel_syms
+    - query_module
+  system_calls_machinectl:
+    - reboot
+  system_calls_random:
+    - getrandom
+  system_calls_numa:
+    - get_mempolicy
+    - set_mempolicy
+    - set_mempolicy_home_node
+    - migrate_pages
+    - mbind
+    - move_pages
+    - dipc
+  system_calls_memory:
+    - cacheflush
+    - mmap2
+    - cachectl
+    - cachestat
+    - osf_set_program_attributes
+    - process_madvise
+    - process_mrelease
+    - riscv_flush_icache
+    - sethae
+    - shmat
+    - shmctl
+    - shmdt
+    - shmget
+    - brk
+    - madvise
+    - mincore
+    - munlock
+    - mlock
+    - mlock2
+    - mlockall
+    - mmap
+    - mprotect
+    - msync
+    - mremap
+    - munmap
+    - memfd_create
+    - modify_ldt
+    - munlockall
+    - process_vm_readv
+    - process_vm_writev
+    - remap_file_pages
+    - swapoff
+    - swapon
+    - vmsplice
+  system_calls_execution:
+    - exit_group
+    - exec_with_loader
+    - osf_syscall
+    - spu_create
+    - spu_run
+    - switch_endian
+    - fork
+    - execve
+    - execveat
+    - exit
+    - vfork
+    - clone
+    - personality
+  system_calls_process_control:
+    - restart_syscall
+    - osf_getrusage
+    - clone3
+    - osf_sigprocmask
+    - osf_sigstack
+    - osf_wait4
     - pidfd_getfd
     - pidfd_open
     - pidfd_send_signal
-    - pivot_root
-    - ppoll_time64
-    - process_madvise
-    - process_mrelease
-    - pselect6
-    - pselect6_time64
-    - quotactl_fd
-    - recvmmsg_time64
-    - removexattrat
-    - request_key
-    - restart_syscall
-    - riscv_flush_icache
-    - riscv_hwprobe
+    - sched_get_affinity
+    - sched_getattr
+    - sched_rr_get_interval_time64
+    - sched_set_affinity
+    - sched_setattr
+    - sched_get_priority_max
+    - sched_get_priority_min
+    - sched_getparam
+    - sched_getscheduler
+    - sched_rr_get_interval
+    - sched_setparam
+    - sched_setscheduler
+    - sched_yield
+    - sgetmask
+    - signalfd4
+    - ssetmask
+    - times
+    - ugetrlimit
+    - usr26
+    - usr32
+    - utrap_install
+    - vm86
+    - vm86old
+    - setpriority
+    - getpriority
+    - getrlimit
+    - setrlimit
+    - getrusage
+    - kill
+    - sigaltstack
+    - wait4
+    - waitid
+    - getcpu
+    - pause
+    - prctl
+    - prlimit64
+    - signalfd
+    - unshare
+    - arch_prctl
+    - capset
+  system_calls_sync:
+    - futex
+    - futex_requeue
+    - futex_time64
+    - futex_wait
+    - futex_waitv
+    - futex_wake
+    - get_robust_list
+    - set_robust_list
+  system_calls_threads:
+    - get_thread_area
+    - set_thread_area
+    - membarrier
+    - arc_gettls
+    - arc_settls
+    - arc_usr_cmpxchg
+    - atomic_barrier
+    - atomic_cmpxchg_32
+    - get_tls
+    - or1k_atomic
+    - capget
+    - osf_usleep_thread
     - rseq
+    - set_tls
+    - set_tid_address
+    - tkill
+    - userfaultfd
+    - gettid
+    - tgkill
+    - listns
+    - rseq_slice_yield
+  system_calls_ipc:
+    - ipc
+    - mq_timedreceive_time64
+    - mq_timedsend_time64
+    - osf_shmat
+    - semtimedop_time64
+    - semctl
+    - semget
+    - semop
+    - mq_notify
+    - mq_open
+    - mq_timedreceive
+    - mq_timedsend
+    - mq_unlink
+    - msgctl
+    - msgget
+    - msgrcv
+    - msgsnd
+    - semtimedop
+  system_calls_notsupposedtobecalledfromuserland:
     - rt_sigaction
     - rt_sigpending
     - rt_sigprocmask
@@ -2135,63 +2454,73 @@ categories:
     - rt_sigtimedwait
     - rt_sigtimedwait_time64
     - rt_tgsigqueueinfo
+    - uretprobe
+  system_calls_ibm:
     - rtas
     - s390_guarded_storage
     - s390_pci_mmio_read
     - s390_pci_mmio_write
     - s390_runtime_instr
     - s390_sthyi
-    - sched_get_affinity
-    - sched_getattr
-    - sched_rr_get_interval_time64
-    - sched_set_affinity
-    - sched_setattr
-    - seccomp
-    - semtimedop_time64
-    - set_mempolicy
-    - set_mempolicy_home_node
-    - set_robust_list
-    - set_thread_area
-    - set_tid_address
-    - set_tls
-    - setfsgid32
-    - setfsuid32
-    - setgid32
-    - setgroups32
-    - sethae
-    - setregid32
-    - setresgid32
-    - setresuid32
-    - setreuid32
-    - setuid32
-    - setxattrat
-    - sgetmask
-    - signalfd4
-    - socketcall
-    - spu_create
-    - spu_run
-    - ssetmask
-    - statmount
-    - subpage_prot
-    - switch_endian
-    - sync_file_range2
-    - sys_debug_setcontext
-    - sysfs
+  system_calls_tracing:
+    - kcmp
+    - uprobe
+  system_calls_profiling:
+    - perf_event_open
+  system_calls_systemstats_info:
+    - kern_features
+    - osf_getsysinfo
+    - osf_setsysinfo
+    - osf_sysinfo
+    - osf_utsname
+    - perfctr
+    - riscv_hwprobe
     - sysmips
-    - timer_gettime64
-    - timer_settime64
-    - timerfd
-    - timerfd_gettime64
-    - timerfd_settime64
-    - times
-    - tkill
-    - ugetrlimit
-    - uretprobe
-    - userfaultfd
-    - usr26
-    - usr32
-    - ustat
-    - utimensat_time64
-    - utrap_install
-    - vm86
-    - vm86old
+    - fstatfs
+    - statfs
+    - sysinfo
+    - uname
+  system_calls_security:
+    - landlock_add_rule
+    - landlock_create_ruleset
+    - landlock_restrict_self
+    - lsm_get_self_attr
+    - lsm_list_modules
+    - lsm_set_self_attr
+    - map_shadow_stack
+    - memfd_secret
+    - mseal
+    - add_key
+    - keyctl
+    - request_key
+    - seccomp
+    - subpage_prot
+    - revoke
+    - setlogin
+    - pkey_alloc
+    - pkey_free
+    - pkey_mprotect
+  system_calls_accounting:
+    - acct
+  system_calls_nfs:
+    - nfsservctl
+  system_calls_tty:
+    - vhangup
+  system_calls_unimplemented:
+    - afs_syscall  
+    - break
+    - fattach
+    - fdetach
+    - getmsg
+    - getpmsg
+    - isastream
+    - lock
+    - madvise1
+    - mpx
+    - prof
+    - putmsg
+    - putpmsg
+    - security
+    - tuxcall
+    - vserver
+    - multiplexer

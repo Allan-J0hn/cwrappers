@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from cwrappers.fuzzy.canon import build_canon_sets
 from cwrappers.fuzzy.scoring import MatchScore, top_k_scores, wrapper_score
+from cwrappers.finder.catalog import load_api_catalog
 
 
 def detect_cols(header: List[str]) -> Dict[str, Optional[int]]:
@@ -86,12 +87,51 @@ def output_path(inp: str, out_path: Optional[str] = None, out_dir: Optional[str]
     return os.path.join(os.path.dirname(os.path.abspath(inp)), out_filename)
 
 
+def _is_na_category(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v in {"", "n/a", "na", "none", "-"}
+
+
+def _load_catalog_with_fallback(yaml_path: Optional[str]):
+    candidates: List[str] = []
+    if yaml_path:
+        candidates.append(yaml_path)
+    try:
+        from cwrappers.shared.paths import default_catalog_path
+        candidates.append(str(default_catalog_path()))
+    except Exception:
+        pass
+
+    candidates.extend([
+        os.path.join(os.getcwd(), "categorized_methods.yaml"),
+        os.path.join(os.getcwd(), "methods.yaml"),
+        os.path.join(os.getcwd(), "Data", "methods.yaml"),
+        os.path.join(os.getcwd(), "Data", "resources_methods.yaml"),
+    ])
+
+    seen = set()
+    for p in candidates:
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        try:
+            from pathlib import Path
+            pp = Path(p)
+            if not pp.is_file():
+                continue
+            return load_api_catalog(pp)
+        except Exception:
+            continue
+    return None
+
+
 def process_csv(inp_path: str,
                 top_k: int = 3,
                 yaml_path: Optional[str] = None,
                 out_path: Optional[str] = None,
                 out_dir: Optional[str] = None) -> str:
     canon_sets = build_canon_sets(yaml_path)
+    catalog = _load_catalog_with_fallback(yaml_path)
     out_path = output_path(inp_path, out_path=out_path, out_dir=out_dir)
 
     with open(inp_path, "r", newline="", encoding="utf-8") as f_in, \
@@ -170,6 +210,13 @@ def process_csv(inp_path: str,
             if not scores:
                 scores = [MatchScore(key="", best_match="", exact=False, token_equal=False, lcs_len=0, combined=0.0, rf_score=0.0)]
             best = scores[0]
+
+            category_out = r["category"]
+            if _is_na_category(category_out) and best.key and catalog is not None:
+                mapped = catalog.category_of(best.key)
+                if mapped and mapped != "unknown":
+                    category_out = mapped
+
             wscore = wrapper_score(
                 function=r["function"],
                 api_called=r["api_called"],
@@ -177,7 +224,7 @@ def process_csv(inp_path: str,
                 fan_out=r["fan_out"],
                 fuzzy_key=best.key,
                 fuzzy_combined=best.combined,
-                category=r["category"],
+                category=category_out,
                 reason=r.get("reason", ""),
                 arg_pass=r.get("arg_pass", ""),
                 ret_pass=r.get("ret_pass", ""),
@@ -187,7 +234,7 @@ def process_csv(inp_path: str,
                 r["function"],
                 r["api_called"],
                 best.key,
-                r["category"],
+                category_out,
                 r["fan_in"],
                 r["callee"],
                 r.get("arg_pass", ""),

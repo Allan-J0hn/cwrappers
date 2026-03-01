@@ -56,6 +56,77 @@ def _parse_args_provided() -> Set[str]:
     return provided
 
 
+def _join_api_names(names: Set[str]) -> str:
+    ordered = sorted({n for n in names if n})
+    return " - ".join(ordered)
+
+
+def _split_api_names(field: str) -> Set[str]:
+    out: Set[str] = set()
+    for part in (field or "").split(" - "):
+        p = (part or "").strip()
+        if not p:
+            continue
+        if p.lower() == "other":
+            continue
+        out.add(p)
+    return out
+
+
+def _trace_reachable_target_apis(
+    all_edges: List[DetailedEdge],
+    direct_targets_by_function: Dict[str, Set[str]],
+    function_name_by_key: Dict[str, str],
+) -> Dict[str, Set[str]]:
+    """Compute transitive reachable tracked APIs for each defined function key."""
+    adjacency: Dict[str, Set[str]] = defaultdict(set)
+    keys_by_name: Dict[str, Set[str]] = defaultdict(set)
+    for k, nm in function_name_by_key.items():
+        keys_by_name[nm].add(k)
+
+    for e in all_edges:
+        caller_k = str(getattr(e, "caller_key", None) or getattr(e, "caller", "") or "")
+        callee_k = str(getattr(e, "callee_key", None) or getattr(e, "callee", "") or "")
+        callee_nm = str(getattr(e, "callee", "") or "")
+        if not caller_k:
+            continue
+
+        resolved_callee_key: Optional[str] = None
+        if callee_k in function_name_by_key:
+            resolved_callee_key = callee_k
+        elif callee_nm:
+            candidates = keys_by_name.get(callee_nm, set())
+            if len(candidates) == 1:
+                resolved_callee_key = next(iter(candidates))
+
+        if resolved_callee_key:
+            adjacency[caller_k].add(resolved_callee_key)
+
+    memo: Dict[str, Set[str]] = {}
+
+    def dfs(func_key: str, stack: Set[str]) -> Set[str]:
+        if func_key in memo:
+            return memo[func_key]
+
+        base = set(direct_targets_by_function.get(func_key, set()))
+        if func_key in stack:
+            memo[func_key] = base
+            return base
+
+        next_stack = set(stack)
+        next_stack.add(func_key)
+        for callee_key in adjacency.get(func_key, set()):
+            base |= dfs(callee_key, next_stack)
+
+        memo[func_key] = base
+        return base
+
+    for fk in function_name_by_key.keys():
+        dfs(fk, set())
+
+    return memo
+
+
 def run_finder(args) -> Optional[Path]:
     provided_args = _parse_args_provided()
 
@@ -285,6 +356,8 @@ def run_finder(args) -> Optional[Path]:
     rows: List[Row] = []
     all_edges: list[DetailedEdge] = []
     seen_keys: Set[Tuple[str, str, str]] = set()
+    function_name_by_key: Dict[str, str] = {}
+    direct_targets_by_function: Dict[str, Set[str]] = defaultdict(set)
 
     for src, clang_args in file_to_args.items():
         if getattr(args, "verbose", False):
@@ -390,6 +463,17 @@ def run_finder(args) -> Optional[Path]:
                         eprint(f"[skip:out-of-project] {func_name} @ {exp_path}")
                     continue
 
+            func_key = _function_key(cursor)
+            function_name_by_key[func_key] = func_name
+
+            try:
+                for call_cur, _loc in collect_target_calls(cursor, catalog.target_names):
+                    resolved_name = _resolve_target_name_for_call(call_cur, catalog)
+                    if resolved_name and resolved_name in catalog.target_names:
+                        direct_targets_by_function[func_key].add(resolved_name)
+            except Exception:
+                pass
+
             keep = False
             per_path_single = False
             total_hits = 0
@@ -480,8 +564,6 @@ def run_finder(args) -> Optional[Path]:
                 continue
             seen_keys.add(dedup_key)
 
-            func_key = _function_key(cursor)
-
             r = Row(
                 file=func_file,
                 function=func_name,
@@ -553,6 +635,36 @@ def run_finder(args) -> Optional[Path]:
     name_frequency: Dict[str, int] = defaultdict(int)
     for r in rows:
         name_frequency[r.function] += 1
+
+    traced_targets_by_function = _trace_reachable_target_apis(
+        all_edges=all_edges,
+        direct_targets_by_function=direct_targets_by_function,
+        function_name_by_key=function_name_by_key,
+    )
+
+    for r in rows:
+        row_key = r.function_key or ""
+        traced = set(traced_targets_by_function.get(row_key, set()))
+        combined = _split_api_names(r.api_called) | traced
+        if combined:
+            r.api_called = _join_api_names(combined)
+            if r.total_target_calls <= 0:
+                r.total_target_calls = len(combined)
+
+    deduped_rows: List[Row] = []
+    seen_rows: Set[Tuple[str, str, str, str]] = set()
+    for r in rows:
+        sig = (
+            r.function_key or "",
+            r.function,
+            r.function_loc or "",
+            r.api_called or "",
+        )
+        if sig in seen_rows:
+            continue
+        seen_rows.add(sig)
+        deduped_rows.append(r)
+    rows = deduped_rows
 
     for r in rows:
         key = r.function_key or r.function

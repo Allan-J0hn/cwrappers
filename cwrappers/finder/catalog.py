@@ -54,6 +54,45 @@ class ApiCatalog:
         return "unknown"
 
 
+def _load_header_group_map(path: Path) -> Dict[str, str]:
+    """Parse categories.txt into a mapping of header-key -> top-level category name.
+
+    Expected format:
+      Category Name
+        header_a header_b
+        header_c
+
+    Header keys may be separated by spaces and/or newlines.
+    """
+    if not path.is_file():
+        return {}
+
+    group_of_header: Dict[str, str] = {}
+    current_group: str | None = None
+
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.rstrip()
+            if not line.strip():
+                continue
+
+            is_group_line = (line[:1].isspace() is False)
+            if is_group_line:
+                current_group = line.strip()
+                continue
+
+            if not current_group:
+                continue
+
+            for token in line.split():
+                key = token.strip()
+                if not key:
+                    continue
+                group_of_header.setdefault(key, current_group)
+
+    return group_of_header
+
+
 def load_api_catalog(yaml_path: Path) -> ApiCatalog:
     with open(yaml_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
@@ -96,14 +135,18 @@ def load_api_catalog(yaml_path: Path) -> ApiCatalog:
             except Exception:
                 continue
 
+    # Parse optional header-group mapping file (sibling categories.txt)
+    header_group_map = _load_header_group_map(yaml_path.with_name("categories.txt"))
+
     # Build categories and name->category index
     categories: Dict[str, Set[str]] = {}
     name_to_category: Dict[str, str] = {}
     for cat, items in (categories_cfg or {}).items():
         s = set(items or [])
         categories[cat] = s
+        top_level_cat = header_group_map.get(cat, cat)
         for nm in s:
-            name_to_category.setdefault(nm, cat)
+            name_to_category.setdefault(nm, top_level_cat)
 
     # Optional categories (backward-compatible). Support both 'thin_alias' and 'thin-alias'.
     thin_aliases: Set[str] = set()
