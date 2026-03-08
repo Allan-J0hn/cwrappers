@@ -16,6 +16,13 @@ from cwrappers.fuzzy.canon import CanonSet
 from cwrappers.fuzzy.normalize import normalize, strip_affixes, tokenize
 
 
+NO_API_STRONG_RF_MIN = 92.0
+NO_API_STRONG_COMBINED_MIN = 82.0
+API_CALLED_STRONG_RF_MIN = 86.0
+API_CALLED_STRONG_COMBINED_MIN = 72.0
+API_CALLED_TOKEN_OVERLAP_MIN = 0.60
+
+
 @dataclass
 class MatchScore:
     key: str
@@ -102,12 +109,117 @@ def _split_callees(callee_field: str) -> List[str]:
     return [p for p in parts if p]
 
 
+def _split_api_called(api_called: str) -> List[str]:
+    if not api_called:
+        return []
+    parts = [p.strip() for p in str(api_called).split(" - ")]
+    out: List[str] = []
+    seen: Set[str] = set()
+    for p in parts:
+        if not p or p.lower() == "other":
+            continue
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+    return out
+
+
+def _fuzzy_pair_stats(a: str, b: str) -> tuple[float, float, float]:
+    a_norm = normalize(a)
+    b_norm = normalize(b)
+    if not a_norm or not b_norm:
+        return 0.0, 0.0, 0.0
+
+    combined = 100.0 if a_norm == b_norm else 100.0 * max(
+        _lcs_str_len(a_norm, b_norm) / max(1, len(a_norm)),
+        _lcs_str_len(a_norm, b_norm) / max(1, len(b_norm)),
+    )
+
+    rf_score = combined
+    if rf_fuzz:
+        try:
+            wratio = float(rf_fuzz.WRatio(a_norm, b_norm))
+            token_ratio = float(rf_fuzz.token_set_ratio(a_norm, b_norm))
+            rf_score = max(wratio, token_ratio)
+        except Exception:
+            rf_score = combined
+
+    a_tokens = set(tokenize(a_norm))
+    b_tokens = set(tokenize(b_norm))
+    if not b_tokens:
+        overlap = 0.0
+    else:
+        overlap = len(a_tokens & b_tokens) / len(b_tokens)
+    return float(combined), float(rf_score), float(overlap)
+
+
+def best_strong_api_called_match(function: str, api_called: str) -> str:
+    """Return strongest matching API from api_called for function name, else empty string."""
+    candidates = _split_api_called(api_called)
+    if not candidates:
+        return ""
+
+    best_api = ""
+    best_key = (-1.0, -1.0, -1.0)
+    for cand in candidates:
+        combined, rf_score, overlap = _fuzzy_pair_stats(function, cand)
+        key = (rf_score, combined, overlap)
+        if key > best_key:
+            best_key = key
+            best_api = cand
+
+    if not best_api:
+        return ""
+
+    rf_score, combined, overlap = best_key
+    strong = (
+        rf_score >= API_CALLED_STRONG_RF_MIN and
+        combined >= API_CALLED_STRONG_COMBINED_MIN and
+        overlap >= API_CALLED_TOKEN_OVERLAP_MIN
+    )
+    return best_api if strong else ""
+
+
+def has_traced_catalog_api(api_called: str, category: str = "") -> bool:
+    api_called_norm = normalize(api_called)
+    category_norm = normalize(category)
+    catalog_blacklist = {"", "other"}
+    category_blacklist = {"", "n/a", "na", "none"}
+    return bool(api_called_norm) and api_called_norm not in catalog_blacklist and category_norm not in category_blacklist
+
+
+def is_strong_fuzzy_without_api(function: str,
+                               fuzzy_key: str,
+                               fuzzy_combined: float,
+                               fuzzy_rf_score: float = 0.0) -> bool:
+    fn_norm = normalize(strip_affixes(function))
+    fuzzy_norm = normalize(fuzzy_key)
+    if not fn_norm or not fuzzy_norm:
+        return False
+    if fuzzy_rf_score < NO_API_STRONG_RF_MIN:
+        return False
+    if fuzzy_combined < NO_API_STRONG_COMBINED_MIN:
+        return False
+
+    fn_tokens = set(tokenize(fn_norm))
+    fuzzy_tokens = set(tokenize(fuzzy_norm))
+    if not fuzzy_tokens:
+        return False
+
+    overlap = len(fn_tokens & fuzzy_tokens) / max(1, len(fuzzy_tokens))
+    if overlap < 0.75:
+        return False
+    return True
+
+
 def wrapper_score(function: str,
                   api_called: str,
                   callee_field: str,
                   fan_out: int,
                   fuzzy_key: str,
                   fuzzy_combined: float,
+                  fuzzy_rf_score: float = 0.0,
                   category: str = "",
                   reason: str = "",
                   arg_pass: str = "",
@@ -117,13 +229,7 @@ def wrapper_score(function: str,
     fn_tokens = set(tokenize(fn_stripped))
 
     fuzzy_norm = normalize(fuzzy_key)
-    api_called_norm = normalize(api_called)
-    category_norm = normalize(category)
-    catalog_blacklist = {"", "other"}
-    category_blacklist = {"", "n/a", "na", "none"}
-    api_from_catalog = (
-        bool(api_called_norm) and api_called_norm not in catalog_blacklist and category_norm not in category_blacklist
-    )
+    api_from_catalog = has_traced_catalog_api(api_called, category)
 
     api_token_source = api_called if api_from_catalog else fuzzy_key
     api_norm = normalize(api_token_source)
@@ -177,6 +283,20 @@ def wrapper_score(function: str,
     s_dom = min(1.0, coverage + boundary_bonus)
 
     s_fuzzy = min(1.0, max(0.0, float(fuzzy_combined) / 100.0))
+    s_fuzzy_rf = min(1.0, max(0.0, float(fuzzy_rf_score) / 100.0))
+
+    if not api_from_catalog:
+        if not is_strong_fuzzy_without_api(function, fuzzy_key, fuzzy_combined, fuzzy_rf_score):
+            low = 0.02 + 0.16 * s_fuzzy_rf
+            return max(0.0, min(0.24, low))
+
+        strong = (
+            0.58 * s_fuzzy_rf +
+            0.22 * s_fuzzy +
+            0.12 * s_pos +
+            0.08 * s_thin
+        )
+        return max(0.0, min(0.82, strong))
 
     try:
         f_out = max(0, int(fan_out))

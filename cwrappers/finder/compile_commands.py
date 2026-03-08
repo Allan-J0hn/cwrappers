@@ -132,10 +132,17 @@ def _sanitize_clang_args_for_libclang(raw_args, src_path, entry_dir):
         "-fprofile", "-fcoverage", "--coverage", "-fprofile-",
         "-fsanitize", "-fno-sanitize",
         "-fmodules", "-fmodule-file=", "-fmodule-map-file=", "-fmodules-cache-path",
-        "-m",
     )
 
-    PRESERVE_EXACT = {"-pthread", "-ansi", "-fsigned-char", "-pedantic"}
+    PRESERVE_EXACT = {
+        "-pthread",
+        "-ansi",
+        "-fsigned-char",
+        "-pedantic",
+        "-nostdinc",
+        "-nostdinc++",
+        "-nostdlibinc",
+    }
 
     PAIR_FLAGS = {
         "-I", "-isystem", "-iquote", "-idirafter",
@@ -143,6 +150,9 @@ def _sanitize_clang_args_for_libclang(raw_args, src_path, entry_dir):
         "-o", "-MF", "-MT", "-MQ", "-MJ",
         "-x", "-isysroot", "--sysroot",
         "-resource-dir", "-target",
+        "-D", "-U",
+        "-std", "-stdlib",
+        "--gcc-toolchain", "-B",
     }
 
     tokens = []
@@ -190,15 +200,15 @@ def _sanitize_clang_args_for_libclang(raw_args, src_path, entry_dir):
                 continue
 
             abs_val = val
-            if tok in {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "-isysroot", "--sysroot"}:
+            if tok in {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "-isysroot", "--sysroot", "--gcc-toolchain", "-B"}:
                 abs_val = _abspath(val, entry_dir)
 
             if tok == "-x":
                 saw_lang = True
+            elif tok == "-std":
+                saw_std = True
             elif tok == "-resource-dir":
                 saw_resource_dir = True
-            elif tok.startswith("-std"):
-                saw_std = True
 
             filtered.append(tok)
             filtered.append(abs_val)
@@ -264,8 +274,33 @@ def _sanitize_clang_args_for_libclang(raw_args, src_path, entry_dir):
             i += 1
             continue
 
+        if tok.startswith("-U"):
+            filtered.append(tok)
+            i += 1
+            continue
+
         if tok in PRESERVE_EXACT:
             filtered.append(tok)
+            i += 1
+            continue
+
+        if tok.startswith("-m"):
+            filtered.append(tok)
+            i += 1
+            continue
+
+        if tok.startswith("-f"):
+            filtered.append(tok)
+            i += 1
+            continue
+
+        if tok.startswith("-stdlib="):
+            filtered.append(tok)
+            i += 1
+            continue
+
+        if tok.startswith("--gcc-toolchain="):
+            filtered.append("--gcc-toolchain=" + _abspath(tok.split("=", 1)[1], entry_dir))
             i += 1
             continue
 
@@ -373,6 +408,24 @@ def _sanitize_clang_args_for_libclang(raw_args, src_path, entry_dir):
             filtered[0:0] = ["-x", "c"]
 
     return filtered
+
+
+def make_retry_clang_args(clang_args: List[str]) -> List[str]:
+    """Strip a narrower subset of args for retry after a faithful first parse fails."""
+    cleaned: List[str] = []
+    i = 0
+    while i < len(clang_args):
+        tok = clang_args[i]
+        has_value = (i + 1 < len(clang_args)) and (not str(clang_args[i + 1]).startswith("-"))
+        if tok in {"-o", "-MF", "-MT", "-MQ", "-MJ"}:
+            i += 1 + (1 if has_value else 0)
+            continue
+        if str(tok).startswith("-m"):
+            i += 1
+            continue
+        cleaned.append(tok)
+        i += 1
+    return cleaned
 
 
 def normalize_args_from_entry(entry: dict) -> Tuple[Path, List[str]]:

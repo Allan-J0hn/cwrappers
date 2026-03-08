@@ -10,8 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from cwrappers.finder.models import Row
-from cwrappers.shared.log import eprint
+from cwrappers.finder.models import EdgeEvidenceRow, Row
 
 
 def is_stdout(path_str: Optional[str]) -> bool:
@@ -62,6 +61,9 @@ def write_rows_csv(rows: Iterable[Row], out_path: Path, all_columns: bool = Fals
 
 
 def _write_csv_rows(w: csv.writer, rows: Iterable[Row], all_columns: bool) -> None:
+    rows_list = list(rows)
+    rows_list.sort(key=lambda r: (-int(getattr(r, "fan_in", 0)), -int(getattr(r, "fan_out", 0)), str(getattr(r, "function", "")), str(getattr(r, "file", ""))))
+
     if all_columns:
         w.writerow([
             "file","function","function_key","api_called","category","total_target_calls",
@@ -70,7 +72,7 @@ def _write_csv_rows(w: csv.writer, rows: Iterable[Row], all_columns: bool) -> No
             "pair_used","via_helper_hop","ignored_helpers","fan_in","fan_out",
             "family","is_thin_alias","callee"
         ])
-        for r in rows:
+        for r in rows_list:
             w.writerow([
                 r.file, r.function, r.function_key or "", r.api_called, r.category, r.total_target_calls,
                 serialize_hit_locs(r.hit_locs),
@@ -92,7 +94,7 @@ def _write_csv_rows(w: csv.writer, rows: Iterable[Row], all_columns: bool) -> No
             ])
     else:
         w.writerow(["file","function","api_called","category","fan_in","fan_out","callee","hit_locs","arg_pass","ret_pass","reason"])
-        for r in rows:
+        for r in rows_list:
             w.writerow([
                 r.file,
                 r.function,
@@ -108,9 +110,66 @@ def _write_csv_rows(w: csv.writer, rows: Iterable[Row], all_columns: bool) -> No
             ])
 
 
+def write_edge_evidence_csv(rows: Iterable[EdgeEvidenceRow], out_path: Path) -> None:
+    if str(out_path) == "-":
+        w = csv.writer(sys.stdout, quoting=csv.QUOTE_MINIMAL)
+        _write_edge_evidence_rows(w, rows)
+        return
+
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+        _write_edge_evidence_rows(w, rows)
+
+
+def _write_edge_evidence_rows(w: csv.writer, rows: Iterable[EdgeEvidenceRow]) -> None:
+    w.writerow([
+        "direction",
+        "match_kind",
+        "query_function",
+        "query_function_key",
+        "query_function_file",
+        "query_function_line",
+        "caller",
+        "caller_key",
+        "callee",
+        "callee_key",
+        "callsite_file",
+        "callsite_line",
+        "callsite_column",
+        "translation_unit",
+    ])
+    for row in rows:
+        w.writerow([
+            row.direction,
+            row.match_kind,
+            row.query_function,
+            row.query_function_key,
+            row.query_function_file,
+            row.query_function_line,
+            row.caller,
+            row.caller_key,
+            row.callee,
+            row.callee_key,
+            row.callsite_file,
+            row.callsite_line,
+            row.callsite_column,
+            row.translation_unit,
+        ])
+
+
 def write_rows_json(rows: Iterable[Row], out_path: Path) -> None:
     if str(out_path) == "-":
         import sys
+        json.dump([asdict(r) for r in rows], sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump([asdict(r) for r in rows], f, ensure_ascii=False, indent=2)
+
+
+def write_edge_evidence_json(rows: Iterable[EdgeEvidenceRow], out_path: Path) -> None:
+    if str(out_path) == "-":
         json.dump([asdict(r) for r in rows], sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
         return
@@ -130,4 +189,17 @@ def write_rows_jsonl(rows: Iterable[Row], out_path: Path) -> None:
     with open(out_path, "w", encoding="utf-8") as f:
         for r in rows:
             json.dump(asdict(r), f, ensure_ascii=False)
+            f.write("\n")
+
+
+def write_edge_evidence_jsonl(rows: Iterable[EdgeEvidenceRow], out_path: Path) -> None:
+    if str(out_path) == "-":
+        for row in rows:
+            json.dump(asdict(row), sys.stdout, ensure_ascii=False)
+            sys.stdout.write("\n")
+        return
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        for row in rows:
+            json.dump(asdict(row), f, ensure_ascii=False)
             f.write("\n")

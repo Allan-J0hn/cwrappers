@@ -8,6 +8,38 @@ from typing import Optional, Tuple
 from cwrappers.finder.clang_bootstrap import cindex, K
 
 
+def _cursor_kinds(*names: str):
+    kinds = []
+    for name in names:
+        kind = getattr(K, name, None)
+        if kind is not None:
+            kinds.append(kind)
+    return tuple(kinds)
+
+
+_CALLABLE_DECL_KINDS = _cursor_kinds(
+    "FUNCTION_DECL",
+    "FUNCTION_TEMPLATE",
+    "CXX_METHOD",
+    "CONSTRUCTOR",
+    "DESTRUCTOR",
+    "CONVERSION_FUNCTION",
+)
+
+
+def _is_callable_decl(c: Optional[cindex.Cursor]) -> bool:
+    return bool(c is not None and getattr(c, "kind", None) in _CALLABLE_DECL_KINDS)
+
+
+def _is_callable_definition(c: Optional[cindex.Cursor]) -> bool:
+    if not _is_callable_decl(c):
+        return False
+    try:
+        return bool(c.is_definition())
+    except Exception:
+        return False
+
+
 def _callee_name(call: cindex.Cursor) -> Optional[str]:
     try:
         ref = call.get_definition() or call.referenced
@@ -21,7 +53,7 @@ def _callee_name(call: cindex.Cursor) -> Optional[str]:
 def _callee_definition(call: cindex.Cursor) -> Optional[cindex.Cursor]:
     try:
         ref = call.get_definition() or call.referenced
-        if ref and ref.kind in (K.FUNCTION_DECL, K.FUNCTION_TEMPLATE):
+        if _is_callable_decl(ref):
             return ref
     except Exception:
         pass
@@ -86,15 +118,17 @@ def _function_key(fn_cursor: cindex.Cursor) -> str:
         return "<unknown>"
 
 
-def _callsite_loc(call: cindex.Cursor) -> Optional[str]:
-    """Return absolute file:line:column for a call site, or None if unavailable."""
+def _callsite_loc(call: cindex.Cursor) -> str:
+    """Return file:line:column for a call site, using <unknown> when libclang omits the file."""
     try:
         loc = call.location
-        if not loc or not loc.file:
-            return None
+        if not loc:
+            return "<unknown>:0:0"
+        if not loc.file:
+            return f"<unknown>:{int(getattr(loc, 'line', 0) or 0)}:{int(getattr(loc, 'column', 0) or 0)}"
         return f"{Path(loc.file.name).resolve()}:{loc.line}:{loc.column}"
     except Exception:
-        return None
+        return "<unknown>:0:0"
 
 
 def _cursor_loc_key(c: Optional[cindex.Cursor]) -> Optional[Tuple[str, int, int]]:
@@ -107,3 +141,18 @@ def _cursor_loc_key(c: Optional[cindex.Cursor]) -> Optional[Tuple[str, int, int]
         return (str(loc.file.name), loc.line, loc.column)
     except Exception:
         return None
+
+
+__all__ = [
+    "_callee_definition",
+    "_callee_name",
+    "_callsite_loc",
+    "_caller_name",
+    "_cursor_loc_key",
+    "_function_body_cursor",
+    "_function_key",
+    "_is_callable_decl",
+    "_is_callable_definition",
+    "_is_param",
+    "_var_key",
+]

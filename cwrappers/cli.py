@@ -106,6 +106,9 @@ def _pipeline(argv: List[str]) -> int:
                 return 2
 
     finder_args = finder_cli.parse_args(finder_argv)
+    if fuzzy and getattr(finder_args, "edge_evidence", None):
+        print("error: --fuzzy cannot be combined with --edge-evidence.")
+        return 2
     if fuzzy and getattr(finder_args, "output", "csv") != "csv":
         print("error: --fuzzy requires finder --output csv.")
         return 2

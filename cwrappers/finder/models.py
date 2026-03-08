@@ -30,3 +30,36 @@ class Row:
     callees: List[str] = field(default_factory=list)
     arg_pass: str = "-"
     ret_pass: str = "-"
+
+
+@dataclass(frozen=True)
+class EdgeEvidenceRow:
+    direction: str
+    match_kind: str
+    query_function: str
+    query_function_key: str
+    query_function_file: str
+    query_function_line: int
+    caller: str
+    caller_key: str
+    callee: str
+    callee_key: str
+    callsite_file: str
+    callsite_line: int
+    callsite_column: int
+    translation_unit: str
+
+
+@dataclass(frozen=True)
+class TranslationUnitReport:
+    translation_unit: str
+    parse_succeeded: bool
+    retry_used: bool
+    diagnostic_ignored_count: int
+    diagnostic_note_count: int
+    diagnostic_warning_count: int
+    diagnostic_error_count: int
+    diagnostic_fatal_count: int
+    total_diagnostic_count: int
+    had_errors: bool
+    parse_failure: str = ""

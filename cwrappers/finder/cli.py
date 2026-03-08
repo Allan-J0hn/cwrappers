@@ -103,19 +103,31 @@ def parse_args(argv: List[str] | None = None):
         type=str,
         required=False,
         default=None,
-        help=("Directory to write call graph files (callgraph_edges.csv, call_counts.csv). "
+        help=("Directory to write call graph files "
+              "(callgraph_edges.csv, call_counts.csv, function_fan_summary.csv, translation_units.csv). "
               "Required when using --callgraph-only."),
     )
     parser.add_argument(
         "--callgraph-only",
         action="store_true",
-        help="Only build and write call graph CSVs; ignores wrapper-detection flags.",
+        help="Only build and write call graph CSVs and per-TU diagnostics; ignores wrapper-detection flags.",
+    )
+    parser.add_argument(
+        "--edge-evidence",
+        type=str,
+        default=None,
+        help=(
+            "Export raw edge-level incoming/outgoing call evidence for one function name only. "
+            "This mode writes one row per matching edge and skips wrapper detection."
+        ),
     )
     parser.add_argument(
         "--unique-callers",
         action="store_true",
-        help=("When writing call_counts.csv, also compute unique-caller counts (number of distinct caller functions per callee). "
-              "If not set, call_counts.csv contains callsite-counts (unique call-sites)."),
+        help=(
+            "Use unique-caller count as the primary sort order for project-only call_counts.csv. "
+            "The CSV always includes both callsite-based and caller-based aggregate columns."
+        ),
     )
     parser.add_argument(
         "--debug-preprocess",

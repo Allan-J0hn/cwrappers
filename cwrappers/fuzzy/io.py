@@ -8,7 +8,14 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from cwrappers.fuzzy.canon import build_canon_sets
-from cwrappers.fuzzy.scoring import MatchScore, top_k_scores, wrapper_score
+from cwrappers.fuzzy.scoring import (
+    MatchScore,
+    best_strong_api_called_match,
+    has_traced_catalog_api,
+    is_strong_fuzzy_without_api,
+    top_k_scores,
+    wrapper_score,
+)
 from cwrappers.finder.catalog import load_api_catalog
 
 
@@ -125,6 +132,14 @@ def _load_catalog_with_fallback(yaml_path: Optional[str]):
     return None
 
 
+def _fan_in_high_threshold(raw_rows: List[Dict[str, Any]]) -> int:
+    fan_vals = sorted(max(0, int(r.get("fan_in", 0))) for r in raw_rows)
+    if not fan_vals:
+        return 0
+    q_idx = int(0.7 * (len(fan_vals) - 1))
+    return max(1, fan_vals[q_idx])
+
+
 def process_csv(inp_path: str,
                 top_k: int = 3,
                 yaml_path: Optional[str] = None,
@@ -204,7 +219,8 @@ def process_csv(inp_path: str,
                 "ret_pass": ret_pass,
             })
 
-        out_rows: List[Tuple[float, int, float, List[object]]] = []
+        fan_in_high = _fan_in_high_threshold(raw)
+        out_rows: List[Tuple[Tuple[int, int, float, str], List[object]]] = []
         for r in raw:
             scores = top_k_scores(r["function"], canon_sets, k=top_k)
             if not scores:
@@ -212,10 +228,16 @@ def process_csv(inp_path: str,
             best = scores[0]
 
             category_out = r["category"]
-            if _is_na_category(category_out) and best.key and catalog is not None:
-                mapped = catalog.category_of(best.key)
-                if mapped and mapped != "unknown":
-                    category_out = mapped
+            if catalog is not None:
+                matched_api = best_strong_api_called_match(r["function"], r.get("api_called", ""))
+                if matched_api:
+                    mapped = catalog.category_of(matched_api)
+                    if mapped and mapped != "unknown":
+                        category_out = mapped
+                elif _is_na_category(category_out) and best.key:
+                    mapped = catalog.category_of(best.key)
+                    if mapped and mapped != "unknown":
+                        category_out = mapped
 
             wscore = wrapper_score(
                 function=r["function"],
@@ -224,16 +246,24 @@ def process_csv(inp_path: str,
                 fan_out=r["fan_out"],
                 fuzzy_key=best.key,
                 fuzzy_combined=best.combined,
+                fuzzy_rf_score=best.rf_score,
                 category=category_out,
                 reason=r.get("reason", ""),
                 arg_pass=r.get("arg_pass", ""),
                 ret_pass=r.get("ret_pass", ""),
             )
+
+            fuzzy_match_out = best.key
+            if (not has_traced_catalog_api(r["api_called"], category_out)) and (
+                not is_strong_fuzzy_without_api(r["function"], best.key, best.combined, best.rf_score)
+            ):
+                fuzzy_match_out = "NO_MATCH"
+
             out_row = [
                 f"{int(round(wscore * 100))}%",
                 r["function"],
                 r["api_called"],
-                best.key,
+                fuzzy_match_out,
                 category_out,
                 r["fan_in"],
                 r["callee"],
@@ -242,16 +272,33 @@ def process_csv(inp_path: str,
                 r["location"],
             ]
             fan_in_val = r["fan_in"]
-            combined_rank = max(1, fan_in_val) * (1.0 + wscore)
-            out_rows.append((combined_rank, fan_in_val, wscore, out_row))
+            good_score = wscore >= 0.50
+            high_fan = fan_in_val >= fan_in_high
 
-        out_rows.sort(key=lambda t: (-t[0], -t[1], -t[2], str(t[3][1])))
+            # Tiering rule (best to worst):
+            #   0: >=50% score and high fan-in
+            #   1: >=50% score
+            #   2: high fan-in
+            #   3: everyone else
+            if good_score and high_fan:
+                tier = 0
+            elif good_score:
+                tier = 1
+            elif high_fan:
+                tier = 2
+            else:
+                tier = 3
+
+            sort_key = (tier, -fan_in_val, -wscore, str(r["function"]))
+            out_rows.append((sort_key, out_row))
+
+        out_rows.sort(key=lambda t: t[0])
 
         out_header = [
             "likelihood_score", "function", "api_called", "fuzzy_match", "category", "fan_in", "callee", "arg_pass", "ret_pass", "location",
         ]
         w.writerow(out_header)
-        for _, _, _, values in out_rows:
+        for _, values in out_rows:
             w.writerow(values)
 
     print(f"[ok] processed: {inp_path}")

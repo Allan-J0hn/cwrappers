@@ -43,6 +43,31 @@ cwrappers pipeline \
   --fuzzy
 ```
 
+Callgraph-only export:
+
+```bash
+cwrappers-finder \
+  --compile-commands /path/to/compile_commands.json \
+  --callgraph-only \
+  --callgraph-out /path/to/callgraph_out
+```
+
+Single-function raw edge evidence export:
+
+```bash
+cwrappers-finder \
+  --compile-commands /path/to/compile_commands.json \
+  --edge-evidence target_function \
+  --out target_function_edges.csv
+```
+
+`--callgraph-only` writes:
+
+- `callgraph_edges.csv`: raw edge rows, including `caller_in_project` / `callee_in_project`
+- `call_counts.csv`: project-only per-callee incoming aggregates for project-defined callees
+- `function_fan_summary.csv`: project-only per-function `fan_in` / `fan_out` summary, while still reflecting external callers/callees on those project rows
+- `translation_units.csv`: per-translation-unit parse diagnostics and exported-edge counts
+
 ## Catalog YAML
 
 `cwrappers` ships with a bundled default catalog at `cwrappers/data/categorized_methods.yaml`.

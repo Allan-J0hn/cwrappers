@@ -3,32 +3,63 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import yaml
 
 from cwrappers.finder import compile_commands
 from cwrappers.finder.analysis import collect_target_calls, _resolve_target_name_for_call
-from cwrappers.finder.callgraph import collect_callgraph_for_tu_detailed, write_callgraph, DetailedEdge
+from cwrappers.finder.callgraph import (
+    DetailedEdge,
+    FunctionDef,
+    build_function_index,
+    build_edge_evidence_rows,
+    collect_callgraph_for_tu_detailed,
+    collect_function_defs_for_tu,
+    resolve_project_function_key,
+    resolve_edge_query,
+    write_callgraph,
+)
 from cwrappers.finder.catalog import ApiCatalog, load_api_catalog
 from cwrappers.finder.clang_bootstrap import cindex, K, _locate_clang_binary
-from cwrappers.finder.models import Row
-from cwrappers.finder.output import is_stdout, prepare_output_location, write_rows_csv, write_rows_json, write_rows_jsonl
+from cwrappers.finder.models import Row, TranslationUnitReport
+from cwrappers.finder.output import (
+    is_stdout,
+    prepare_output_location,
+    write_edge_evidence_csv,
+    write_edge_evidence_json,
+    write_edge_evidence_jsonl,
+    write_rows_csv,
+    write_rows_json,
+    write_rows_jsonl,
+)
 from cwrappers.finder.provenance import compute_arg_ret_pass_multi
 from cwrappers.finder.wrapper_detection import analyze_wrapper_relaxed, analyze_wrapper_strict_plus
-from cwrappers.finder.ast_utils import _function_key
+from cwrappers.finder.ast_utils import _caller_name, _function_key, _is_callable_definition
 from cwrappers.shared.log import eprint
 from cwrappers.shared.paths import default_catalog_path
 
 
-def _default_output_name(fmt: str) -> str:
+def _safe_output_stem(name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name or "").strip())
+    return stem.strip("._") or "edge_evidence"
+
+
+def _default_output_name(fmt: str, edge_evidence: Optional[str] = None) -> str:
+    if edge_evidence:
+        stem = f"{_safe_output_stem(edge_evidence)}_edge_evidence"
+        if fmt == "json":
+            return f"{stem}.json"
+        if fmt == "jsonl":
+            return f"{stem}.jsonl"
+        return f"{stem}.csv"
     if fmt == "json":
         return "wrappers.json"
     if fmt == "jsonl":
@@ -43,7 +74,10 @@ def _apply_out_dir(args) -> None:
     out_dir = str(out_dir)
     if not out_dir:
         return
-    default_name = _default_output_name(getattr(args, "output", "csv"))
+    default_name = _default_output_name(
+        getattr(args, "output", "csv"),
+        edge_evidence=getattr(args, "edge_evidence", None),
+    )
     args.out = str(Path(out_dir) / default_name)
 
 
@@ -56,30 +90,52 @@ def _parse_args_provided() -> Set[str]:
     return provided
 
 
-def _join_api_names(names: Set[str]) -> str:
-    ordered = sorted({n for n in names if n})
-    return " - ".join(ordered)
+def _unique_in_order(names: Iterable[str]) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for n in names:
+        v = (n or "").strip()
+        if not v or v.lower() == "other":
+            continue
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
 
 
-def _split_api_names(field: str) -> Set[str]:
-    out: Set[str] = set()
+def _join_api_names(names: Iterable[str]) -> str:
+    return " - ".join(_unique_in_order(names))
+
+
+def _split_api_names(field: str) -> List[str]:
+    out: List[str] = []
     for part in (field or "").split(" - "):
         p = (part or "").strip()
         if not p:
             continue
         if p.lower() == "other":
             continue
-        out.add(p)
-    return out
+        out.append(p)
+    return _unique_in_order(out)
+
+
+def _parse_callsite_loc(loc: str) -> Tuple[int, int]:
+    try:
+        _path, line, col = str(loc).rsplit(":", 2)
+        return (int(line), int(col))
+    except Exception:
+        return (10**9, 10**9)
 
 
 def _trace_reachable_target_apis(
     all_edges: List[DetailedEdge],
-    direct_targets_by_function: Dict[str, Set[str]],
+    direct_targets_by_function: Dict[str, List[str]],
     function_name_by_key: Dict[str, str],
-) -> Dict[str, Set[str]]:
+) -> Dict[str, List[str]]:
     """Compute transitive reachable tracked APIs for each defined function key."""
-    adjacency: Dict[str, Set[str]] = defaultdict(set)
+    adjacency: Dict[str, List[Tuple[str, Tuple[int, int]]]] = defaultdict(list)
+    adjacency_seen: Dict[str, Set[str]] = defaultdict(set)
     keys_by_name: Dict[str, Set[str]] = defaultdict(set)
     for k, nm in function_name_by_key.items():
         keys_by_name[nm].add(k)
@@ -94,37 +150,298 @@ def _trace_reachable_target_apis(
         resolved_callee_key: Optional[str] = None
         if callee_k in function_name_by_key:
             resolved_callee_key = callee_k
-        elif callee_nm:
+        elif callee_nm and (not callee_k or callee_k.endswith("@<unknown>")):
             candidates = keys_by_name.get(callee_nm, set())
             if len(candidates) == 1:
                 resolved_callee_key = next(iter(candidates))
 
         if resolved_callee_key:
-            adjacency[caller_k].add(resolved_callee_key)
+            if resolved_callee_key not in adjacency_seen[caller_k]:
+                adjacency_seen[caller_k].add(resolved_callee_key)
+                adjacency[caller_k].append((resolved_callee_key, _parse_callsite_loc(getattr(e, "loc", ""))))
 
-    memo: Dict[str, Set[str]] = {}
+    for caller_k in list(adjacency.keys()):
+        adjacency[caller_k].sort(key=lambda pair: pair[1])
 
-    def dfs(func_key: str, stack: Set[str]) -> Set[str]:
+    memo: Dict[str, List[str]] = {}
+
+    def dfs(func_key: str, stack: Set[str]) -> List[str]:
         if func_key in memo:
             return memo[func_key]
 
-        base = set(direct_targets_by_function.get(func_key, set()))
+        base: List[str] = list(direct_targets_by_function.get(func_key, []))
         if func_key in stack:
-            memo[func_key] = base
-            return base
+            memo[func_key] = _unique_in_order(base)
+            return memo[func_key]
 
         next_stack = set(stack)
         next_stack.add(func_key)
-        for callee_key in adjacency.get(func_key, set()):
-            base |= dfs(callee_key, next_stack)
+        for callee_key, _loc_key in adjacency.get(func_key, []):
+            base.extend(dfs(callee_key, next_stack))
 
-        memo[func_key] = base
-        return base
+        memo[func_key] = _unique_in_order(base)
+        return memo[func_key]
 
     for fk in function_name_by_key.keys():
         dfs(fk, set())
 
     return memo
+
+
+def _trace_reachable_callee_names(
+    all_edges: List[DetailedEdge],
+    function_defs_by_key: Dict[str, FunctionDef],
+) -> Dict[str, List[str]]:
+    """Compute transitive reachable callee names for project-defined callers."""
+    _defs_by_key, keys_by_name = build_function_index(function_defs_by_key.values())
+    direct_names_by_caller: Dict[str, List[str]] = defaultdict(list)
+    project_callees_by_caller: Dict[str, Set[str]] = defaultdict(set)
+
+    for e in all_edges:
+        caller_k, _caller_match = resolve_project_function_key(
+            getattr(e, "caller_key", None),
+            getattr(e, "caller", ""),
+            function_defs_by_key,
+            keys_by_name,
+        )
+        if not caller_k:
+            continue
+
+        callee_nm = str(getattr(e, "callee", "") or "")
+        if callee_nm:
+            direct_names_by_caller[caller_k].append(callee_nm)
+
+        callee_k, _callee_match = resolve_project_function_key(
+            getattr(e, "callee_key", None),
+            getattr(e, "callee", ""),
+            function_defs_by_key,
+            keys_by_name,
+        )
+        if callee_k:
+            project_callees_by_caller[caller_k].add(callee_k)
+
+    memo: Dict[str, List[str]] = {}
+
+    def dfs(func_key: str, stack: Set[str]) -> List[str]:
+        if func_key in memo:
+            return memo[func_key]
+
+        names: List[str] = list(direct_names_by_caller.get(func_key, []))
+        if func_key in stack:
+            memo[func_key] = _unique_in_order(names)
+            return memo[func_key]
+
+        next_stack = set(stack)
+        next_stack.add(func_key)
+        for callee_key in sorted(project_callees_by_caller.get(func_key, set())):
+            names.extend(dfs(callee_key, next_stack))
+
+        memo[func_key] = _unique_in_order(names)
+        return memo[func_key]
+
+    for fk in function_defs_by_key.keys():
+        dfs(fk, set())
+
+    return memo
+
+
+def _build_translation_unit_report(
+    src: Path,
+    tu: Optional[cindex.TranslationUnit],
+    retry_used: bool,
+    parse_failure: str = "",
+) -> TranslationUnitReport:
+    ignored = 0
+    note = 0
+    warning = 0
+    error = 0
+    fatal = 0
+
+    for diag in getattr(tu, "diagnostics", []) or []:
+        try:
+            sev = int(getattr(diag, "severity", 0) or 0)
+        except Exception:
+            sev = 0
+        if sev <= 0:
+            ignored += 1
+        elif sev == 1:
+            note += 1
+        elif sev == 2:
+            warning += 1
+        elif sev == 3:
+            error += 1
+        else:
+            fatal += 1
+
+    total = ignored + note + warning + error + fatal
+    return TranslationUnitReport(
+        translation_unit=str(src),
+        parse_succeeded=tu is not None,
+        retry_used=retry_used,
+        diagnostic_ignored_count=ignored,
+        diagnostic_note_count=note,
+        diagnostic_warning_count=warning,
+        diagnostic_error_count=error,
+        diagnostic_fatal_count=fatal,
+        total_diagnostic_count=total,
+        had_errors=bool(parse_failure or error or fatal),
+        parse_failure=parse_failure,
+    )
+
+
+def _row_identity(row: Row) -> str:
+    key = (row.function_key or "").strip()
+    if key and key != "<unknown>":
+        return key
+    return f"{row.function}@{row.function_loc or '-'}"
+
+
+def _merge_rows(existing: Row, incoming: Row) -> None:
+    existing.api_called = _join_api_names([
+        *_split_api_names(existing.api_called),
+        *_split_api_names(incoming.api_called),
+    ])
+    existing.total_target_calls = max(existing.total_target_calls, incoming.total_target_calls)
+
+    existing_hits = set(existing.hit_locs or [])
+    existing_hits.update(incoming.hit_locs or [])
+    existing.hit_locs = sorted(existing_hits)
+
+    existing.derived_from_params = bool(existing.derived_from_params or incoming.derived_from_params)
+
+    dt = set(existing.derivation_trace or [])
+    dt.update(incoming.derivation_trace or [])
+    existing.derivation_trace = sorted(dt)
+
+    existing.per_path_single = bool(existing.per_path_single and incoming.per_path_single)
+    existing.pair_used = bool(existing.pair_used or incoming.pair_used)
+    existing.via_helper_hop = bool(existing.via_helper_hop or incoming.via_helper_hop)
+
+    ih = set(existing.ignored_helpers or [])
+    ih.update(incoming.ignored_helpers or [])
+    existing.ignored_helpers = sorted(ih)
+
+    if (not existing.family or existing.family == "-") and incoming.family and incoming.family != "-":
+        existing.family = incoming.family
+    existing.is_thin_alias = bool(existing.is_thin_alias or incoming.is_thin_alias)
+
+    if existing.reason in ("-", "n/a", "N/A", "") and incoming.reason not in ("", "-", "n/a", "N/A"):
+        existing.reason = incoming.reason
+
+    if existing.arg_pass in ("", "-", "N/A") and incoming.arg_pass not in ("", "-"):
+        existing.arg_pass = incoming.arg_pass
+    if existing.ret_pass in ("", "-", "N/A") and incoming.ret_pass not in ("", "-"):
+        existing.ret_pass = incoming.ret_pass
+
+    if existing.category in ("unknown", "N/A", "") and incoming.category not in ("", "unknown"):
+        existing.category = incoming.category
+
+    if (existing.file in ("", "-") and incoming.file) or (existing.function_loc in ("", "-") and incoming.function_loc):
+        if incoming.file:
+            existing.file = incoming.file
+        if incoming.function_loc:
+            existing.function_loc = incoming.function_loc
+
+
+def _select_category_from_api_called(api_called: str, catalog: ApiCatalog, default_category: str = "unknown") -> str:
+    apis = _split_api_names(api_called)
+    if not apis:
+        return default_category
+
+    counts: Dict[str, int] = defaultdict(int)
+    first_idx: Dict[str, int] = {}
+    for i, api in enumerate(apis):
+        cat = catalog.category_of(api)
+        counts[cat] += 1
+        if cat not in first_idx:
+            first_idx[cat] = i
+
+    if not counts:
+        return default_category
+
+    best_n = max(counts.values())
+    winners = [cat for cat, n in counts.items() if n == best_n]
+    if len(winners) == 1:
+        return winners[0]
+
+    winners.sort(key=lambda cat: first_idx.get(cat, 10**9))
+    return winners[0] if winners else default_category
+
+
+def _parse_translation_unit(
+    src: Path,
+    clang_args: List[str],
+    verbose: bool = False,
+    debug_preprocess: bool = False,
+) -> tuple[Optional[cindex.TranslationUnit], TranslationUnitReport]:
+    index = cindex.Index.create()
+    try:
+        t0 = time.time()
+        tu = index.parse(
+            str(src),
+            args=clang_args,
+            options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
+        )
+        t1 = time.time()
+        if verbose:
+            eprint(f"[parsed] {src} in {t1 - t0:.2f}s")
+            for d in getattr(tu, "diagnostics", []) or []:
+                try:
+                    eprint(f"[diag] sev={d.severity} loc={d.location} msg={d.spelling}")
+                except Exception:
+                    pass
+        return tu, _build_translation_unit_report(src, tu, retry_used=False)
+    except cindex.TranslationUnitLoadError as e:
+        if verbose:
+            eprint(f"[warn] initial parse failed for {src}: {e}")
+            eprint("[warn] retrying with cleaned flags...")
+
+        cleaned = compile_commands.make_retry_clang_args(clang_args)
+
+        try:
+            tu = index.parse(
+                str(src),
+                args=cleaned,
+                options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
+            )
+            if verbose:
+                eprint(f"[parsed:retry] {src}")
+            return tu, _build_translation_unit_report(src, tu, retry_used=True)
+        except cindex.TranslationUnitLoadError as e2:
+            eprint(f"[error] libclang failed to parse {src}")
+            eprint(f"  original args={clang_args}")
+            eprint(f"  cleaned  args={cleaned}")
+            eprint(f"  {e2}")
+            if debug_preprocess:
+                try:
+                    clang_bin = _locate_clang_binary()
+                    if not clang_bin:
+                        eprint("[debug-preprocess] clang binary not found (none of CLANG_BIN/clang/clang-20). Install clang or set CLANG_BIN to the clang path.")
+                    else:
+                        cmd = [clang_bin, "-E", "-x", "c"]
+                        for tok in cleaned:
+                            if isinstance(tok, str) and (tok == "-working-directory" or tok.startswith("-working-directory")):
+                                continue
+                            cmd.append(tok)
+
+                        cmd.append(str(src))
+
+                        cwd = str(Path(src).parent)
+                        eprint(f"[debug-preprocess] running: {' '.join(shlex.quote(x) for x in cmd)}  (cwd={cwd})")
+                        try:
+                            if not Path(cwd).exists():
+                                raise FileNotFoundError(cwd)
+                            proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+                        except FileNotFoundError:
+                            eprint(f"[debug-preprocess] warning: TU working-directory does not exist: {cwd}. Falling back to no-cwd run.")
+                            proc = subprocess.run(cmd, capture_output=True, text=True)
+                        if proc.stdout:
+                            eprint("[debug-preprocess] stdout:\n" + proc.stdout)
+                        if proc.stderr:
+                            eprint("[debug-preprocess] stderr:\n" + proc.stderr)
+                except Exception as _e:
+                    eprint(f"[debug-preprocess] failed to run clang -E: {_e}")
+            return None, _build_translation_unit_report(src, None, retry_used=True, parse_failure=str(e2))
 
 
 def run_finder(args) -> Optional[Path]:
@@ -153,6 +470,10 @@ def run_finder(args) -> Optional[Path]:
         args.only_syscalls = False
 
     _apply_out_dir(args)
+
+    if getattr(args, "callgraph_only", False) and getattr(args, "edge_evidence", None):
+        print("error: --callgraph-only and --edge-evidence cannot be combined.", file=sys.stderr)
+        raise SystemExit(1)
 
     if getattr(args, "callgraph_only", False):
         bad = []
@@ -271,35 +592,65 @@ def run_finder(args) -> Optional[Path]:
     # ============================
     # CALLGRAPH-ONLY EARLY RETURN
     # ============================
-    if getattr(args, "callgraph_only", False):
+    if getattr(args, "callgraph_only", False) or getattr(args, "edge_evidence", None):
         callgraph_edges: list[DetailedEdge] = []
-        seen_global: set[str] = set()
+        function_defs_by_key: Dict[str, FunctionDef] = {}
+        tu_reports: List[TranslationUnitReport] = []
 
         for src, clang_args in file_to_args.items():
             if getattr(args, "verbose", False):
                 eprint(f"[callgraph] parsing {src}")
 
-            index = cindex.Index.create()
-            try:
-                tu = index.parse(
-                    str(src),
-                    args=clang_args,
-                    options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
-                )
-            except cindex.TranslationUnitLoadError as e:
-                eprint(f"[callgraph][error] libclang failed to parse {src}: {e}")
+            tu, tu_report = _parse_translation_unit(
+                src,
+                clang_args,
+                verbose=getattr(args, "verbose", False),
+                debug_preprocess=getattr(args, "debug_preprocess", False),
+            )
+            tu_reports.append(tu_report)
+            if tu is None:
                 continue
 
-            edges_tu, _seen_tu = collect_callgraph_for_tu_detailed(tu)
+            for fn_def in collect_function_defs_for_tu(tu):
+                if filter_active and not _is_in_project(fn_def.file or str(src)):
+                    continue
+                function_defs_by_key.setdefault(fn_def.function_key, fn_def)
 
-            for e in edges_tu:
-                if e.loc not in seen_global:
-                    seen_global.add(e.loc)
-                    callgraph_edges.append(e)
-        out_dir = Path(args.callgraph_out)
-        write_callgraph(out_dir, callgraph_edges, unique_callers=getattr(args, "unique_callers", False))
-        eprint(f"[summary] files={len(file_to_args)} edges={len(callgraph_edges)}")
-        return None
+            edges_tu, _seen_tu = collect_callgraph_for_tu_detailed(tu, translation_unit=str(src))
+            callgraph_edges.extend(edges_tu)
+
+        if getattr(args, "callgraph_only", False):
+            out_dir = Path(args.callgraph_out)
+            write_callgraph(
+                out_dir,
+                callgraph_edges,
+                unique_callers=getattr(args, "unique_callers", False),
+                project_function_defs=function_defs_by_key.values(),
+                tu_reports=tu_reports,
+            )
+            eprint(f"[summary] files={len(file_to_args)} edges={len(callgraph_edges)}")
+            return None
+
+        try:
+            query_def = resolve_edge_query(str(args.edge_evidence), function_defs_by_key.values())
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+
+        evidence_rows = build_edge_evidence_rows(query_def, callgraph_edges)
+        out_path = Path(args.out)
+        if args.output in {"csv", "json", "jsonl"} and out_path.exists() and out_path.is_dir():
+            eprint(f"ERROR: --out points to a directory; provide a file path for {args.output}.")
+            raise SystemExit(1)
+
+        if args.output == "csv":
+            write_edge_evidence_csv(evidence_rows, out_path)
+        elif args.output == "json":
+            write_edge_evidence_json(evidence_rows, out_path)
+        elif args.output == "jsonl":
+            write_edge_evidence_jsonl(evidence_rows, out_path)
+
+        return out_path if not is_stdout(str(out_path)) else None
 
     # ============================
     # WRAPPER DETECTION PATH
@@ -354,10 +705,12 @@ def run_finder(args) -> Optional[Path]:
             catalog.target_names = set().union(catalog.libc, catalog.syscalls)
 
     rows: List[Row] = []
+    rows_by_identity: Dict[str, Row] = {}
     all_edges: list[DetailedEdge] = []
-    seen_keys: Set[Tuple[str, str, str]] = set()
     function_name_by_key: Dict[str, str] = {}
-    direct_targets_by_function: Dict[str, Set[str]] = defaultdict(set)
+    project_function_defs_by_key: Dict[str, FunctionDef] = {}
+    direct_targets_by_function: Dict[str, List[str]] = defaultdict(list)
+    tu_reports: List[TranslationUnitReport] = []
 
     for src, clang_args in file_to_args.items():
         if getattr(args, "verbose", False):
@@ -366,88 +719,21 @@ def run_finder(args) -> Optional[Path]:
             for a in clang_args:
                 eprint(f"  {a}")
 
-        index = cindex.Index.create()
-        try:
-            t0 = time.time()
-            tu = index.parse(
-                str(src),
-                args=clang_args,
-                options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
-            )
-            t1 = time.time()
-            if getattr(args, "verbose", False):
-                eprint(f"[parsed] {src} in {t1 - t0:.2f}s")
-            if getattr(args, "verbose", False):
-                for d in getattr(tu, "diagnostics", []) or []:
-                    try:
-                        eprint(f"[diag] sev={d.severity} loc={d.location} msg={d.spelling}")
-                    except Exception:
-                        pass
-
-        except cindex.TranslationUnitLoadError as e:
-            if getattr(args, "verbose", False):
-                eprint(f"[warn] initial parse failed for {src}: {e}")
-                eprint("[warn] retrying with cleaned flags...")
-
-            cleaned: List[str] = []
-            i = 0
-            while i < len(clang_args):
-                tok = clang_args[i]
-                if tok in ("-o", "-MF", "-MT", "-MQ", "-MJ") and i + 1 < len(clang_args) and not clang_args[i+1].startswith("-"):
-                    i += 2
-                    continue
-                cleaned.append(tok)
-                i += 1
-
-            try:
-                tu = index.parse(
-                    str(src),
-                    args=cleaned,
-                    options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
-                )
-                if getattr(args, "verbose", False):
-                    eprint(f"[parsed:retry] {src}")
-            except cindex.TranslationUnitLoadError as e2:
-                eprint(f"[error] libclang failed to parse {src}")
-                eprint(f"  original args={clang_args}")
-                eprint(f"  cleaned  args={cleaned}")
-                eprint(f"  {e2}")
-                if getattr(args, "debug_preprocess", False):
-                    try:
-                        clang_bin = _locate_clang_binary()
-                        if not clang_bin:
-                            eprint("[debug-preprocess] clang binary not found (none of CLANG_BIN/clang/clang-20). Install clang or set CLANG_BIN to the clang path.")
-                        else:
-                            cmd = [clang_bin, "-E", "-x", "c"]
-                            for tok in cleaned:
-                                if isinstance(tok, str) and (tok == "-working-directory" or tok.startswith("-working-directory")):
-                                    continue
-                                cmd.append(tok)
-
-                            cmd.append(str(src))
-
-                            cwd = str(Path(src).parent)
-                            eprint(f"[debug-preprocess] running: {' '.join(shlex.quote(x) for x in cmd)}  (cwd={cwd})")
-                            try:
-                                if not Path(cwd).exists():
-                                    raise FileNotFoundError(cwd)
-                                proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
-                            except FileNotFoundError:
-                                eprint(f"[debug-preprocess] warning: TU working-directory does not exist: {cwd}. Falling back to no-cwd run.")
-                                proc = subprocess.run(cmd, capture_output=True, text=True)
-                            if proc.stdout:
-                                eprint("[debug-preprocess] stdout:\n" + proc.stdout)
-                            if proc.stderr:
-                                eprint("[debug-preprocess] stderr:\n" + proc.stderr)
-                    except Exception as _e:
-                        eprint(f"[debug-preprocess] failed to run clang -E: {_e}")
-                continue
+        tu, tu_report = _parse_translation_unit(
+            src,
+            clang_args,
+            verbose=getattr(args, "verbose", False),
+            debug_preprocess=getattr(args, "debug_preprocess", False),
+        )
+        tu_reports.append(tu_report)
+        if tu is None:
+            continue
 
         for cursor in tu.cursor.walk_preorder():
-            if cursor.kind != K.FUNCTION_DECL or not cursor.is_definition():
+            if not _is_callable_definition(cursor):
                 continue
 
-            func_name = cursor.spelling
+            func_name = _caller_name(cursor)
             loc = cursor.location
             func_file = loc.file.name if (loc and loc.file) else str(src)
             func_loc = f"{func_file}:{loc.line}" if (loc and loc.file) else "-"
@@ -465,12 +751,21 @@ def run_finder(args) -> Optional[Path]:
 
             func_key = _function_key(cursor)
             function_name_by_key[func_key] = func_name
+            project_function_defs_by_key.setdefault(
+                func_key,
+                FunctionDef(
+                    function_key=func_key,
+                    function=func_name,
+                    file=str(Path(func_file).resolve()) if func_file not in ("", "-") else "",
+                    line=int(getattr(loc, "line", 0) or 0),
+                ),
+            )
 
             try:
                 for call_cur, _loc in collect_target_calls(cursor, catalog.target_names):
                     resolved_name = _resolve_target_name_for_call(call_cur, catalog)
                     if resolved_name and resolved_name in catalog.target_names:
-                        direct_targets_by_function[func_key].add(resolved_name)
+                        direct_targets_by_function[func_key].append(resolved_name)
             except Exception:
                 pass
 
@@ -559,11 +854,6 @@ def run_finder(args) -> Optional[Path]:
                 if (not keep) or (total_hits == 0) or (not api_name) or (api_name not in catalog.target_names):
                     continue
 
-            dedup_key = (func_name, func_loc, api_name or "other")
-            if dedup_key in seen_keys:
-                continue
-            seen_keys.add(dedup_key)
-
             r = Row(
                 file=func_file,
                 function=func_name,
@@ -583,11 +873,16 @@ def run_finder(args) -> Optional[Path]:
                 family=("thin_alias" if (api_name and api_name in (catalog.thin_aliases or set())) else "-"),
                 is_thin_alias=bool(api_name and api_name in (catalog.thin_aliases or set())),
             )
-            rows.append(r)
+            rid = _row_identity(r)
+            if rid in rows_by_identity:
+                _merge_rows(rows_by_identity[rid], r)
+            else:
+                rows_by_identity[rid] = r
+                rows.append(r)
             try:
                 if mode_eff == "all" and not api_name:
-                    rows[-1].arg_pass = "N/A"
-                    rows[-1].ret_pass = "N/A"
+                    rows_by_identity[rid].arg_pass = "N/A"
+                    rows_by_identity[rid].ret_pass = "N/A"
                 else:
                     matching_calls: List[cindex.Cursor] = []
                     for call_cur, _loc in collect_target_calls(cursor, catalog.target_names):
@@ -595,96 +890,83 @@ def run_finder(args) -> Optional[Path]:
                         if resolved == api_name:
                             matching_calls.append(call_cur)
                     arg_pass, ret_pass = compute_arg_ret_pass_multi(cursor, matching_calls)
-                    rows[-1].arg_pass = arg_pass
-                    rows[-1].ret_pass = ret_pass
+                    rows_by_identity[rid].arg_pass = arg_pass
+                    rows_by_identity[rid].ret_pass = ret_pass
             except Exception:
                 pass
 
         try:
-            edges_tu, _seen_tu = collect_callgraph_for_tu_detailed(tu)
+            edges_tu, _seen_tu = collect_callgraph_for_tu_detailed(tu, translation_unit=str(src))
             all_edges.extend(edges_tu)
         except Exception:
             pass
 
+    project_defs_by_key, project_keys_by_name = build_function_index(project_function_defs_by_key.values())
     callers_by_callee: Dict[str, Set[str]] = defaultdict(set)
     callees_by_caller: Dict[str, Set[str]] = defaultdict(set)
-    callee_names_by_caller_key: Dict[str, Set[str]] = defaultdict(set)
-    unres_callers_by_callee_name: Dict[str, Set[str]] = defaultdict(set)
-    unres_callees_by_caller_name: Dict[str, Set[str]] = defaultdict(set)
 
     for e in all_edges:
-        caller_k = getattr(e, "caller_key", None) or getattr(e, "caller", "")
-        callee_k = getattr(e, "callee_key", None) or getattr(e, "callee", "")
-        callers_by_callee[str(callee_k)].add(str(caller_k))
-        callees_by_caller[str(caller_k)].add(str(callee_k))
-        callee_nm = getattr(e, "callee", "") or ""
-        if callee_nm:
-            callee_names_by_caller_key[str(caller_k)].add(callee_nm)
+        raw_caller_key = str(getattr(e, "caller_key", None) or getattr(e, "caller", "") or "")
+        raw_caller_name = str(getattr(e, "caller", "") or "")
+        raw_callee_key = str(getattr(e, "callee_key", None) or getattr(e, "callee", "") or "")
+        raw_callee_name = str(getattr(e, "callee", "") or "")
 
-        if isinstance(callee_k, str) and callee_k.endswith("@<unknown>"):
-            callee_nm = getattr(e, "callee", "") or ""
-            caller_nm = getattr(e, "caller", "") or ""
-            if callee_nm and caller_nm:
-                unres_callers_by_callee_name[callee_nm].add(caller_nm)
-        if isinstance(caller_k, str) and caller_k.endswith("@<unknown>"):
-            caller_nm = getattr(e, "caller", "") or ""
-            callee_nm = getattr(e, "callee", "") or ""
-            if caller_nm and callee_nm:
-                unres_callees_by_caller_name[caller_nm].add(callee_nm)
+        caller_k, _caller_match = resolve_project_function_key(
+            getattr(e, "caller_key", None),
+            getattr(e, "caller", ""),
+            project_defs_by_key,
+            project_keys_by_name,
+        )
+        callee_k, _callee_match = resolve_project_function_key(
+            getattr(e, "callee_key", None),
+            getattr(e, "callee", ""),
+            project_defs_by_key,
+            project_keys_by_name,
+        )
+        caller_identity = caller_k or raw_caller_key or raw_caller_name
+        callee_identity = callee_k or raw_callee_key or raw_callee_name
 
-    name_frequency: Dict[str, int] = defaultdict(int)
-    for r in rows:
-        name_frequency[r.function] += 1
+        if callee_k and caller_identity:
+            callers_by_callee[callee_k].add(caller_identity)
+        if caller_k and callee_identity:
+            callees_by_caller[caller_k].add(callee_identity)
 
     traced_targets_by_function = _trace_reachable_target_apis(
         all_edges=all_edges,
         direct_targets_by_function=direct_targets_by_function,
         function_name_by_key=function_name_by_key,
     )
+    reachable_callee_names_by_function = _trace_reachable_callee_names(all_edges, project_defs_by_key)
 
     for r in rows:
         row_key = r.function_key or ""
-        traced = set(traced_targets_by_function.get(row_key, set()))
-        combined = _split_api_names(r.api_called) | traced
+        traced = list(traced_targets_by_function.get(row_key, []))
+        combined = [*_split_api_names(r.api_called), *traced]
         if combined:
             r.api_called = _join_api_names(combined)
             if r.total_target_calls <= 0:
-                r.total_target_calls = len(combined)
-
-    deduped_rows: List[Row] = []
-    seen_rows: Set[Tuple[str, str, str, str]] = set()
-    for r in rows:
-        sig = (
-            r.function_key or "",
-            r.function,
-            r.function_loc or "",
-            r.api_called or "",
-        )
-        if sig in seen_rows:
-            continue
-        seen_rows.add(sig)
-        deduped_rows.append(r)
-    rows = deduped_rows
+                r.total_target_calls = len(_unique_in_order(combined))
+            r.category = _select_category_from_api_called(r.api_called, catalog, r.category)
 
     for r in rows:
         key = r.function_key or r.function
         fin = len(callers_by_callee.get(key, set()))
         fout = len(callees_by_caller.get(key, set()))
-        if fin == 0 and name_frequency.get(r.function, 0) == 1:
-            fin = len(unres_callers_by_callee_name.get(r.function, set()))
-        if fout == 0 and name_frequency.get(r.function, 0) == 1:
-            fout = len(unres_callees_by_caller_name.get(r.function, set()))
         r.fan_in = fin
         r.fan_out = fout
-        names = sorted(callee_names_by_caller_key.get(key, set()))
-        if not names and name_frequency.get(r.function, 0) == 1:
-            names = sorted(unres_callees_by_caller_name.get(r.function, set()))
+        names = list(reachable_callee_names_by_function.get(key, []))
         r.callees = names
 
     if getattr(args, "callgraph_out", None):
         try:
             out_dir = Path(args.callgraph_out)
-            write_callgraph(out_dir, all_edges, unique_callers=getattr(args, "unique_callers", False))
+            write_callgraph(
+                out_dir,
+                all_edges,
+                unique_callers=getattr(args, "unique_callers", False),
+                project_function_defs=project_defs_by_key.values(),
+                tu_reports=tu_reports,
+            )
             if getattr(args, "verbose", False):
                 eprint(f"[callgraph] wrote callgraph to {out_dir} (edges={len(all_edges)})")
         except Exception as _e:
